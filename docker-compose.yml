@@ -1,6 +1,9 @@
 services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.3-alpine
+    ports:
+      - "8190:8123"
+      - "9090:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/logging.xml:ro
@@ -17,6 +20,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    ports:
+      - "6390:6379"
     command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
@@ -26,8 +31,10 @@ services:
 
   backend:
     build: ./backend
+    ports:
+      - "8090:8090"
     environment:
-      PORT: "8080"
+      PORT: "8090"
       REDIS_URL: "redis://redis:6379"
       CLICKHOUSE_URL: "clickhouse://clickhouse:9000"
       SQLITE_PATH: "/data/procluster.db"
@@ -43,12 +50,18 @@ services:
 
   frontend-chart:
     build: ./frontend-chart
+    ports:
+      - "5180:5180"
+    environment:
+      VITE_API_URL: "http://localhost:8090"
     networks:
       - backend
     restart: unless-stopped
 
   frontend-landing:
     build: ./frontend-landing
+    ports:
+      - "5181:5181"
     networks:
       - backend
     restart: unless-stopped

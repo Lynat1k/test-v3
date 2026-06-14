@@ -24,11 +24,11 @@ chart.procluster.online {
     reverse_proxy frontend-chart:80
 
     handle /api/* {
-        reverse_proxy backend:8080
+        reverse_proxy backend:8090
     }
 
     handle /ws {
-        reverse_proxy backend:8080
+        reverse_proxy backend:8090
     }
 
     header {

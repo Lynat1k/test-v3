@@ -17,15 +17,15 @@ import (
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8090"
 	}
 	redisAddr := os.Getenv("REDIS_URL")
 	if redisAddr == "" {
-		redisAddr = "localhost:6379"
+		redisAddr = "localhost:6390"
 	}
 	chAddr := os.Getenv("CLICKHOUSE_URL")
 	if chAddr == "" {
-		chAddr = "clickhouse://localhost:9000"
+		chAddr = "clickhouse://localhost:9090"
 	}
 	migrationsPath := os.Getenv("MIGRATIONS_PATH")
 	if migrationsPath == "" {
