@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"procluster-backend/internal/aggregate"
+	"procluster-backend/internal/api"
 	"procluster-backend/internal/cache"
 	"procluster-backend/internal/history"
 	"procluster-backend/internal/ingest"
@@ -116,6 +117,16 @@ func runServer() {
 	}
 	log.Println("Redis connected")
 
+	configs, err := ch.QueryTickerConfigs(ctx)
+	if err != nil {
+		log.Printf("warning: could not load ticker configs: %v", err)
+		configs = []aggregate.TickerConfig{
+			{Symbol: "BTCUSDT", Market: "futures", TickSize: 0.1, BaseCompression: 25, CompressionLevels: 10, DefaultCompression: 25, TTLDays: 365, DOMSnapshotSec: 60, Enabled: true},
+			{Symbol: "BTCUSDT", Market: "spot", TickSize: 0.01, BaseCompression: 500, CompressionLevels: 10, DefaultCompression: 500, TTLDays: 1095, DOMSnapshotSec: 900, Enabled: true},
+		}
+	}
+	log.Printf("Loaded %d ticker configs", len(configs))
+
 	type tickerDef struct {
 		symbol string
 		market string
@@ -123,9 +134,21 @@ func runServer() {
 		comp   uint32
 		tfs    []string
 	}
-	tickers := []tickerDef{
-		{"BTCUSDT", "futures", 0.1, 25, []string{"1m", "5m", "15m", "30m", "1h", "4h"}},
-		{"BTCUSDT", "spot", 0.01, 500, []string{"15m", "30m", "1h", "4h"}},
+
+	tfByMarket := map[string][]string{
+		"futures": {"1m", "5m", "15m", "30m", "1h", "4h"},
+		"spot":    {"15m", "30m", "1h", "4h"},
+	}
+
+	tickers := make([]tickerDef, 0, len(configs))
+	for _, tc := range configs {
+		tickers = append(tickers, tickerDef{
+			symbol: tc.Symbol,
+			market: tc.Market,
+			tick:   tc.TickSize,
+			comp:   tc.BaseCompression,
+			tfs:    tfByMarket[tc.Market],
+		})
 	}
 
 	for _, td := range tickers {
@@ -152,14 +175,19 @@ func runServer() {
 
 	log.Printf("Started ingest for %d ticker(s)", len(tickers))
 
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
 
+	apiServer := api.NewServer(ch, rdb, configs)
+	apiServer.SetupRoutes(mux)
+
 	log.Printf("Server listening on :%s", port)
 	go func() {
-		if err := http.ListenAndServe(":"+port, nil); err != nil && err != http.ErrServerClosed {
+		if err := http.ListenAndServe(":"+port, mux); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("http: %v", err)
 		}
 	}()

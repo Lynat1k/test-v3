@@ -36,6 +36,11 @@ func (c *RedisCache) Close() error {
 	return c.rdb.Close()
 }
 
+// GetClient returns the underlying Redis client for direct use.
+func (c *RedisCache) GetClient() *redis.Client {
+	return c.rdb
+}
+
 // --- Live aggregation (Hash) ---
 
 // IncrCell increments bid/ask for a price bin in the live aggregation hash.
