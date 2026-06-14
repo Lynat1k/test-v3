@@ -44,7 +44,6 @@ CREATE TABLE IF NOT EXISTS clusters_futures
 ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(candle_time)
 ORDER BY (symbol, timeframe, candle_time, price)
-INDEX idx_price price TYPE minmax GRANULARITY 4
 TTL candle_time + INTERVAL 365 DAY DELETE
 SETTINGS index_granularity = 8192;
 
@@ -66,7 +65,6 @@ CREATE TABLE IF NOT EXISTS clusters_spot
 ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(candle_time)
 ORDER BY (symbol, timeframe, candle_time, price)
-INDEX idx_price price TYPE minmax GRANULARITY 4
 TTL candle_time + INTERVAL 1095 DAY DELETE
 SETTINGS index_granularity = 8192;
 
