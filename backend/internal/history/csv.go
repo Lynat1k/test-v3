@@ -10,7 +10,7 @@ import (
 )
 
 // ParseFuturesCSV parses a comma-delimited Binance futures trades CSV from data.binance.vision.
-// Format: id,price,qty,quote_qty,time,is_buyer_maker (with header row)
+// Format: id,price,qty,quote_qty,time,is_buyer_maker (WITH header row, 6 columns)
 func ParseFuturesCSV(r io.Reader) ([]aggregate.Trade, error) {
 	var trades []aggregate.Trade
 	scanner := bufio.NewScanner(r)
@@ -27,7 +27,7 @@ func ParseFuturesCSV(r io.Reader) ([]aggregate.Trade, error) {
 		if lineNum == 1 && strings.HasPrefix(line, "id") {
 			continue
 		}
-		t, err := parseCommaLine(line)
+		t, err := parseFuturesLine(line)
 		if err != nil {
 			continue
 		}
@@ -36,9 +36,9 @@ func ParseFuturesCSV(r io.Reader) ([]aggregate.Trade, error) {
 	return trades, scanner.Err()
 }
 
-// parseCommaLine parses a comma-delimited trade line.
+// parseFuturesLine parses a single futures trade line.
 // Format: id,price,qty,quote_qty,time,is_buyer_maker
-func parseCommaLine(line string) (aggregate.Trade, error) {
+func parseFuturesLine(line string) (aggregate.Trade, error) {
 	parts := strings.Split(line, ",")
 	if len(parts) < 6 {
 		return aggregate.Trade{}, io.ErrUnexpectedEOF
@@ -72,25 +72,19 @@ func parseCommaLine(line string) (aggregate.Trade, error) {
 }
 
 // ParseSpotCSV parses a comma-delimited Binance spot trades CSV from data.binance.vision.
-// Format: id,price,qty,quote_qty,time,is_buyer_maker (with header row)
+// Format: id,price,qty,quote_qty,time,is_buyer_maker,is_best_match (NO header row, 7 columns)
 // Timestamp is in MICROSECONDS (from Jan 2025 onward), so we divide by 1000.
 func ParseSpotCSV(r io.Reader) ([]aggregate.Trade, error) {
 	var trades []aggregate.Trade
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
 
-	lineNum := 0
 	for scanner.Scan() {
-		lineNum++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		// Skip header row
-		if lineNum == 1 && strings.HasPrefix(line, "id") {
-			continue
-		}
-		t, err := parseSpotCommaLine(line)
+		t, err := parseSpotLine(line)
 		if err != nil {
 			continue
 		}
@@ -99,7 +93,9 @@ func ParseSpotCSV(r io.Reader) ([]aggregate.Trade, error) {
 	return trades, scanner.Err()
 }
 
-func parseSpotCommaLine(line string) (aggregate.Trade, error) {
+// parseSpotLine parses a single spot trade line.
+// Format: id,price,qty,quote_qty,time,is_buyer_maker[,is_best_match]
+func parseSpotLine(line string) (aggregate.Trade, error) {
 	parts := strings.Split(line, ",")
 	if len(parts) < 6 {
 		return aggregate.Trade{}, io.ErrUnexpectedEOF

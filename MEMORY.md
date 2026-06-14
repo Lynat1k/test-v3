@@ -99,9 +99,8 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - INDEX в ClickHouse CREATE TABLE: синтаксис требует правильного порядка (INDEX до TTL).
 
 ## 12. Уроки из history loading (Phase 3)
-- **data.binance.vision CSV format**: comma-delimited with header row (`id,price,qty,quote_qty,time,is_buyer_maker`), NOT pipe-delimited as the GitHub README suggests. Actual URL: `data/futures/um/daily/trades/{SYMBOL}/{SYMBOL}-trades-{DATE}.zip` (futures), `data/spot/daily/trades/{SYMBOL}/{SYMBOL}-trades-{DATE}.zip` (spot).
-- **Spot microsecond timestamps**: From Jan 2025, spot CSV timestamps are in microseconds (divide by 1000 to get ms). Heuristic: `timeRaw > 1e15` → microseconds.
-- **aggTrade ID gaps are normal**: Binance historical aggTrade data has natural gaps in tradeId sequences. Gap logging must be disabled for history loading to avoid log spam.
+- **data.binance.vision CSV format**: comma-delimited, NO pipe as README says. URL: `data/futures/um/daily/trades/{SYMBOL}/{SYMBOL}-trades-{DATE}.zip` (futures), `data/spot/daily/trades/{SYMBOL}/{SYMBOL}-trades-{DATE}.zip` (spot). **Futures CSV**: header row + 6 cols (`id,price,qty,quote_qty,time,is_buyer_maker`). **Spot CSV**: NO header + 7 cols (`id,price,qty,quote_qty,time,is_buyer_maker,is_best_match`). Spot time is microseconds (>1e15 → /1000).
+- **Trades have continuous tradeId**: Binance trades (NOT aggTrades) have sequential IDs. Gaps = real data loss → must be logged.
 - **ReplacingMergeTree idempotency**: Re-INSERTing same data creates temporary duplicates. Deduplication happens on background merge. Queries use `FINAL` keyword for correct results.
 - **Memory-efficient streaming**: Process 1.8M trades/day without loading everything into memory — CSV parsed line-by-line, per-candle aggregators created lazily.
 ```

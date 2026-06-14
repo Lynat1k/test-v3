@@ -160,7 +160,6 @@ func (p *Pipeline) aggregateAndInsert(ctx context.Context, cfg HistoryConfig, tr
 		agg, ok := aggMap[key]
 		if !ok {
 			agg = aggregate.NewAggregator(cfg.Symbol, cfg.Market, tf, cfg.TickSize, cfg.Compression)
-			agg.LogGaps = false
 			aggMap[key] = agg
 		}
 			agg.ProcessTrade(t)

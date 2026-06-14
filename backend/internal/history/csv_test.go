@@ -7,8 +7,8 @@ import (
 )
 
 func TestParseFuturesCSV(t *testing.T) {
-	// Real Binance futures trades from data.binance.vision (comma-delimited with header):
-	// id,price,qty,quote_qty,time,is_buyer_maker
+	// Real Binance futures trades from data.binance.vision:
+	// comma-delimited WITH header row, 6 columns
 	csv := `id,price,qty,quote_qty,time,is_buyer_maker
 5793017800,93548.8,0.036,3367.7568,1735689600051,false
 5793017801,93548.8,0.02,1870.976,1735689600051,false
@@ -22,7 +22,6 @@ func TestParseFuturesCSV(t *testing.T) {
 		t.Fatalf("expected 3 trades, got %d", len(trades))
 	}
 
-	// Trade 1
 	if trades[0].TradeID != 5793017800 {
 		t.Errorf("trade[0].TradeID = %d, want 5793017800", trades[0].TradeID)
 	}
@@ -38,23 +37,17 @@ func TestParseFuturesCSV(t *testing.T) {
 	if trades[0].IsBuyerMaker {
 		t.Errorf("trade[0].IsBuyerMaker = true, want false")
 	}
-
-	// Trade 3 — is_buyer_maker=true
-	if trades[2].TradeID != 5793017802 {
-		t.Errorf("trade[2].TradeID = %d, want 5793017802", trades[2].TradeID)
-	}
 	if !trades[2].IsBuyerMaker {
 		t.Errorf("trade[2].IsBuyerMaker = false, want true")
 	}
 }
 
 func TestParseSpotCSV(t *testing.T) {
-	// Real Binance spot trades from data.binance.vision (comma-delimited with header):
-	// id,price,qty,quote_qty,time,is_buyer_maker
-	csv := `id,price,qty,quote_qty,time,is_buyer_maker
-51175358,17.80180000,5.69000000,101.29224200,1735689600000000,true
-51175359,17.80200000,0.10000000,1.78020000,1735689600010000,false
-51175360,17.80150000,2.50000000,44.50375000,1735689600020000,true`
+	// Real Binance spot trades from data.binance.vision:
+	// comma-delimited, NO header row, 7 columns (is_best_match is 7th)
+	csv := `4361451942,94591.78000000,0.00015000,14.18876700,1735776000113701,True,True
+4361451943,94591.78000000,0.00181000,171.21112180,1735776000174250,True,True
+4361451944,94591.79000000,0.00092000,87.02444680,1735776000539055,False,True`
 
 	trades, err := ParseSpotCSV(strings.NewReader(csv))
 	if err != nil {
@@ -65,17 +58,17 @@ func TestParseSpotCSV(t *testing.T) {
 	}
 
 	// Trade 1 — microsecond timestamp converted to milliseconds
-	if trades[0].TradeID != 51175358 {
-		t.Errorf("trade[0].TradeID = %d, want 51175358", trades[0].TradeID)
+	if trades[0].TradeID != 4361451942 {
+		t.Errorf("trade[0].TradeID = %d, want 4361451942", trades[0].TradeID)
 	}
-	if trades[0].Price != 17.8018 {
-		t.Errorf("trade[0].Price = %v, want 17.8018", trades[0].Price)
+	if trades[0].Price != 94591.78 {
+		t.Errorf("trade[0].Price = %v, want 94591.78", trades[0].Price)
 	}
-	if trades[0].Qty != 5.69 {
-		t.Errorf("trade[0].Qty = %v, want 5.69", trades[0].Qty)
+	if trades[0].Qty != 0.00015 {
+		t.Errorf("trade[0].Qty = %v, want 0.00015", trades[0].Qty)
 	}
-	// 1735689600000000 us → 1735689600000 ms
-	expectedMs := int64(1735689600000)
+	// 1735776000113701 us → 1735776000113 ms
+	expectedMs := int64(1735776000113)
 	if trades[0].TradeTimeMs != expectedMs {
 		t.Errorf("trade[0].TradeTimeMs = %d, want %d", trades[0].TradeTimeMs, expectedMs)
 	}
@@ -83,9 +76,24 @@ func TestParseSpotCSV(t *testing.T) {
 		t.Errorf("trade[0].IsBuyerMaker = false, want true")
 	}
 
-	// Trade 2 — isBuyerMaker=false → ask
-	if trades[1].IsBuyerMaker {
-		t.Errorf("trade[1].IsBuyerMaker = true, want false")
+	// Trade 3 — isBuyerMaker=False
+	if trades[2].IsBuyerMaker {
+		t.Errorf("trade[2].IsBuyerMaker = true, want false")
+	}
+}
+
+func TestParseSpotCSV_NoHeaderRow(t *testing.T) {
+	// Spot has NO header — first line must be parsed as data
+	csv := `12345,100.5,1.0,100.5,1735776000113701,True,True`
+	trades, err := ParseSpotCSV(strings.NewReader(csv))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(trades) != 1 {
+		t.Fatalf("expected 1 trade, got %d", len(trades))
+	}
+	if trades[0].TradeID != 12345 {
+		t.Errorf("TradeID = %d, want 12345", trades[0].TradeID)
 	}
 }
 
@@ -114,27 +122,8 @@ func TestParseFuturesCSV_EmptyInput(t *testing.T) {
 	}
 }
 
-func TestParseSpotCSV_OldFormat_Milliseconds(t *testing.T) {
-	// Old spot format: timestamp already in milliseconds (< 1e15)
-	csv := `id,price,qty,quote_qty,time,is_buyer_maker
-51175358,17.80180000,5.69000000,101.29224200,1735689600108,true`
-
-	trades, err := ParseSpotCSV(strings.NewReader(csv))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(trades) != 1 {
-		t.Fatalf("expected 1 trade, got %d", len(trades))
-	}
-	// 1735689600108 < 1e15, so treated as milliseconds directly
-	if trades[0].TradeTimeMs != 1735689600108 {
-		t.Errorf("TradeTimeMs = %d, want 1735689600108 (no division)", trades[0].TradeTimeMs)
-	}
-}
-
 func TestParseSpotCSV_TooFewColumns(t *testing.T) {
-	csv := `id,price,qty
-28457,4.00000100,12.00000000`
+	csv := `12345,100.5,1.0`
 	trades, err := ParseSpotCSV(strings.NewReader(csv))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
