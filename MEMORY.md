@@ -76,7 +76,7 @@ JSON на старте. Live DOM на старте (без history). Старт:
 
 ## 10. Статус фаз (дополняется автоматически)
 - [x] 0 Скелет монорепо + docker-compose + перенос PROCLUSTER3 + чистка фейков [build]
-- [ ] 1 Схема ClickHouse + правила агрегации (docs/01) [plan]
+- [x] 1 Схема ClickHouse + правила агрегации (docs/01) [build] ✅ DONE
 - [ ] 2 Ingest Binance WS + Redis live-агрегация [compose]
 - [ ] 3 History loader (data.binance.vision) + агрегация + округление [build]
 - [ ] 4 REST API: candles(last-700+догрузка), DOM live, fear&greed [build]

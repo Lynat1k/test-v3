@@ -39,21 +39,25 @@
 
 Объём в каждой ячейке кластера округляется до **1 знака после запятой** перед записью в ClickHouse.
 
-Метод округления: **математическое округление (round half up)** до 1 десятичного знака.
+Метод округления: **round half up** (при ровной .5 — округляем вверх, от нуля).
+Реализация: округление через десятичное представление (строковый разбор digit'ов), не через float-арифметику.
 
 Примеры (обязательны как тест-кейсы):
 
-| Сырой объём | Записываем |
-|---|---|
-| 5.1256 | 5.1 |
-| 5.627 | 5.6 |
-| 5.65 | 5.7 (round half up) |
-| 0.0125 | 0 |
-| 0.85 | 0.8 |
-| 0.05 | 0.1 |
-| 0.04 | 0 |
+| Сырой объём | Записываем | Пояснение |
+|---|---|---|
+| 5.1256 | 5.1 | d2=2 < 5 → truncate |
+| 5.627 | 5.6 | d2=2 < 5 → truncate |
+| 5.65 | 5.7 | d2=5 → round up |
+| 0.0125 | 0 | d2=1 < 5 → truncate |
+| 0.85 | 0.9 | d2=5 → round up |
+| 0.75 | 0.8 | d2=5 → round up |
+| 0.05 | 0.1 | d2=5 → round up |
+| 0.15 | 0.2 | d2=5 → round up |
+| 0.04 | 0 | d2=4 < 5 → truncate |
+| 99.99 | 100.0 | d2=9 → round up + carry |
 
-> Тип хранения: `Decimal(18, 1)` или `Float32` — **выбрать Decimal(18,1)** для детерминизма.
+> Тип хранения: `Decimal(18, 1)` — для детерминизма.
 > Округление выполняется ДО записи, на этапе агрегации. Не округлять при чтении.
 
 ---
@@ -138,13 +142,16 @@ isBuyerMaker == false → агрессор = ПОКУПАТЕЛЬ → это ASK
 ```sql
 CREATE TABLE IF NOT EXISTS ticker_config
 (
-    symbol           String,            -- 'BTCUSDT'
-    market           Enum8('spot'=1,'futures'=2),
-    tick_size        Decimal(18, 8),    -- 0.1 / 0.01
-    base_compression UInt32,            -- 25 / 500
-    ttl_days         UInt32,            -- 365 / 1095
-    enabled          UInt8 DEFAULT 1,
-    updated_at       DateTime DEFAULT now()
+    symbol                 LowCardinality(String),  -- 'BTCUSDT'
+    market                 Enum8('spot'=1,'futures'=2),
+    tick_size              Decimal(18, 8),           -- 0.1 / 0.01
+    base_compression       UInt32,                   -- 25 / 500
+    compression_levels     UInt8 DEFAULT 10,         -- кол-во уровней сжатия
+    default_compression    UInt32 DEFAULT 25,        -- дефолтный уровень для UI
+    ttl_days               UInt32,                   -- 365 / 1095
+    dom_snapshot_seconds   UInt32 DEFAULT 60,        -- интервал снапшотов стакана
+    enabled                UInt8 DEFAULT 1,
+    updated_at             DateTime DEFAULT now()
 )
 ENGINE = ReplacingMergeTree(updated_at)
 ORDER BY (symbol, market);
@@ -170,6 +177,7 @@ CREATE TABLE IF NOT EXISTS clusters_futures
 ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(candle_time)
 ORDER BY (symbol, timeframe, candle_time, price)
+INDEX idx_price price TYPE minmax GRANULARITY 4
 TTL candle_time + INTERVAL 365 DAY DELETE
 SETTINGS index_granularity = 8192;
 
@@ -189,6 +197,7 @@ CREATE TABLE IF NOT EXISTS clusters_spot
 ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(candle_time)
 ORDER BY (symbol, timeframe, candle_time, price)
+INDEX idx_price price TYPE minmax GRANULARITY 4
 TTL candle_time + INTERVAL 1095 DAY DELETE
 SETTINGS index_granularity = 8192;
 ```
@@ -205,9 +214,10 @@ CREATE TABLE IF NOT EXISTS dom_snapshots_futures
     snap_time   DateTime,            -- момент закрытия минуты
     price       Decimal(18, 1),      -- агрег. по base_compression (шаг 2.5$)
     bid_qty     Decimal(18, 1),
-    ask_qty     Decimal(18, 1)
+    ask_qty     Decimal(18, 1),
+    updated_at  DateTime DEFAULT now()
 )
-ENGINE = MergeTree
+ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(snap_time)
 ORDER BY (symbol, snap_time, price)
 TTL snap_time + INTERVAL 90 DAY DELETE;     -- TTL уточняемый, на старт 90 дней
@@ -218,9 +228,10 @@ CREATE TABLE IF NOT EXISTS dom_snapshots_spot
     snap_time   DateTime,            -- момент закрытия 15м
     price       Decimal(18, 1),      -- шаг 5$
     bid_qty     Decimal(18, 1),
-    ask_qty     Decimal(18, 1)
+    ask_qty     Decimal(18, 1),
+    updated_at  DateTime DEFAULT now()
 )
-ENGINE = MergeTree
+ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(snap_time)
 ORDER BY (symbol, snap_time, price)
 TTL snap_time + INTERVAL 90 DAY DELETE;
