@@ -78,7 +78,7 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - [x] 0 Скелет монорепо + docker-compose + перенос PROCLUSTER3 + чистка фейков [build]
 - [x] 1 Схема ClickHouse + правила агрегации (docs/01) [build] ✅ DONE
 - [x] 2 Ingest Binance WS + Redis live-агрегация [compose] ✅ DONE (live-tested)
-- [ ] 3 History loader (data.binance.vision) + агрегация + округление [build]
+- [x] 3 History loader (data.binance.vision) + агрегация + округление [build] ✅ DONE
 - [ ] 4 REST API: candles(last-700+догрузка), DOM live, fear&greed [build]
 - [ ] 5 WS-хаб на фронт (батч 100-500ms) [build]
 - [ ] 6 Адаптация движка + интерактив (zoom/SHIFT/CTRL/auto/workspace) [compose]
@@ -97,4 +97,11 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - `clickhouse-go/v2` не принимает `float64` в `Decimal(18,1)` колонки. Используем `shopspring/decimal`.
 - Unexported поля ( lowercase `t`) не маппятся `json.Unmarshal`. Все JSON-поля должны быть exported.
 - INDEX в ClickHouse CREATE TABLE: синтаксис требует правильного порядка (INDEX до TTL).
+
+## 12. Уроки из history loading (Phase 3)
+- **data.binance.vision CSV format**: comma-delimited with header row (`id,price,qty,quote_qty,time,is_buyer_maker`), NOT pipe-delimited as the GitHub README suggests. Actual URL: `data/futures/um/daily/trades/{SYMBOL}/{SYMBOL}-trades-{DATE}.zip` (futures), `data/spot/daily/trades/{SYMBOL}/{SYMBOL}-trades-{DATE}.zip` (spot).
+- **Spot microsecond timestamps**: From Jan 2025, spot CSV timestamps are in microseconds (divide by 1000 to get ms). Heuristic: `timeRaw > 1e15` → microseconds.
+- **aggTrade ID gaps are normal**: Binance historical aggTrade data has natural gaps in tradeId sequences. Gap logging must be disabled for history loading to avoid log spam.
+- **ReplacingMergeTree idempotency**: Re-INSERTing same data creates temporary duplicates. Deduplication happens on background merge. Queries use `FINAL` keyword for correct results.
+- **Memory-efficient streaming**: Process 1.8M trades/day without loading everything into memory — CSV parsed line-by-line, per-candle aggregators created lazily.
 ```

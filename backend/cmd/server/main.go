@@ -2,35 +2,99 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"procluster-backend/internal/aggregate"
 	"procluster-backend/internal/cache"
+	"procluster-backend/internal/history"
 	"procluster-backend/internal/ingest"
 	"procluster-backend/internal/store"
 )
 
-func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8090"
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
-	redisAddr := os.Getenv("REDIS_URL")
-	if redisAddr == "" {
-		redisAddr = "localhost:6390"
+	return def
+}
+
+func runLoadHistory() error {
+	symbol := flag.String("symbol", "BTCUSDT", "Trading symbol")
+	market := flag.String("market", "futures", "Market: futures or spot")
+	fromStr := flag.String("from", "", "Start date (YYYY-MM-DD)")
+	toStr := flag.String("to", "", "End date (YYYY-MM-DD)")
+	chAddr := flag.String("clickhouse-url", envOr("CLICKHOUSE_URL", "clickhouse://localhost:9090"), "ClickHouse DSN")
+	flag.Parse()
+
+	if *fromStr == "" || *toStr == "" {
+		return fmt.Errorf("--from and --to are required")
 	}
-	chAddr := os.Getenv("CLICKHOUSE_URL")
-	if chAddr == "" {
-		chAddr = "clickhouse://localhost:9090"
+
+	from, err := time.Parse("2006-01-02", *fromStr)
+	if err != nil {
+		return fmt.Errorf("invalid --from date: %w", err)
 	}
-	migrationsPath := os.Getenv("MIGRATIONS_PATH")
-	if migrationsPath == "" {
-		migrationsPath = "migrations/001_init.sql"
+	to, err := time.Parse("2006-01-02", *toStr)
+	if err != nil {
+		return fmt.Errorf("invalid --to date: %w", err)
 	}
+
+	type tickerDef struct {
+		tick float64
+		comp uint32
+		tfs  []string
+	}
+	tickers := map[string]map[string]tickerDef{
+		"BTCUSDT": {
+			"futures": {0.1, 25, []string{"1m", "5m", "15m", "30m", "1h", "4h"}},
+			"spot":    {0.01, 500, []string{"15m", "30m", "1h", "4h"}},
+		},
+	}
+
+	sym := strings.ToUpper(*symbol)
+	mkt := strings.ToLower(*market)
+
+	td, ok := tickers[sym][mkt]
+	if !ok {
+		return fmt.Errorf("unknown ticker: %s %s", mkt, sym)
+	}
+
+	ch, err := store.NewClickHouse(*chAddr)
+	if err != nil {
+		return fmt.Errorf("clickhouse: %w", err)
+	}
+	defer ch.Close()
+
+	cfg := history.HistoryConfig{
+		Symbol:      sym,
+		Market:      mkt,
+		From:        from,
+		To:          to,
+		TickSize:    td.tick,
+		Compression: td.comp,
+		Timeframes:  td.tfs,
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	p := history.NewPipeline(ch, nil)
+	return p.Run(ctx, cfg)
+}
+
+func runServer() {
+	port := envOr("PORT", "8090")
+	redisAddr := envOr("REDIS_URL", "localhost:6390")
+	chAddr := envOr("CLICKHOUSE_URL", "clickhouse://localhost:9090")
+	migrationsPath := envOr("MIGRATIONS_PATH", "migrations/001_init.sql")
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -102,4 +166,16 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("Shutting down...")
+}
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "loadhistory" {
+		os.Args = append(os.Args[:1], os.Args[2:]...)
+		if err := runLoadHistory(); err != nil {
+			log.Fatalf("loadhistory: %v", err)
+		}
+		return
+	}
+
+	runServer()
 }

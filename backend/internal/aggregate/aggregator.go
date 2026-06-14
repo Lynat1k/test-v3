@@ -49,6 +49,8 @@ type Aggregator struct {
 	seen map[int64]bool
 	// last known tradeId for gap detection
 	lastTradeID int64
+	// LogGaps controls whether gap detection logs messages (disable for history loading)
+	LogGaps bool
 }
 
 // NewAggregator creates a new aggregator.
@@ -61,6 +63,7 @@ func NewAggregator(symbol, market, tf string, tickSize float64, compression uint
 		Comp:      compression,
 		cells:     make(map[float64]*ClusterCell),
 		seen:      make(map[int64]bool),
+		LogGaps:   true,
 	}
 }
 
@@ -78,8 +81,10 @@ func (a *Aggregator) ProcessTrade(t Trade) (gapStart, gapEnd int64, hasGap bool)
 		gapStart = a.lastTradeID + 1
 		gapEnd = t.TradeID - 1
 		hasGap = true
-		log.Printf("tradeId gap detected: %d–%d (last=%d, current=%d)",
-			gapStart, gapEnd, a.lastTradeID, t.TradeID)
+		if a.LogGaps {
+			log.Printf("tradeId gap detected: %d–%d (last=%d, current=%d)",
+				gapStart, gapEnd, a.lastTradeID, t.TradeID)
+		}
 	}
 	if t.TradeID > a.lastTradeID {
 		a.lastTradeID = t.TradeID
