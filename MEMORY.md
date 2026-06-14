@@ -77,7 +77,7 @@ JSON на старте. Live DOM на старте (без history). Старт:
 ## 10. Статус фаз (дополняется автоматически)
 - [x] 0 Скелет монорепо + docker-compose + перенос PROCLUSTER3 + чистка фейков [build]
 - [x] 1 Схема ClickHouse + правила агрегации (docs/01) [build] ✅ DONE
-- [x] 2 Ingest Binance WS + Redis live-агрегация [compose] ✅ DONE
+- [x] 2 Ingest Binance WS + Redis live-агрегация [compose] ✅ DONE (live-tested)
 - [ ] 3 History loader (data.binance.vision) + агрегация + округление [build]
 - [ ] 4 REST API: candles(last-700+догрузка), DOM live, fear&greed [build]
 - [ ] 5 WS-хаб на фронт (батч 100-500ms) [build]
@@ -91,4 +91,10 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - [ ] 13 Лендинг procluster.online [build]
 - [ ] 14 Аудит безопасности + хардненинг [plan]
 - [ ] 15 CI/CD автодеплой [build]
+
+## 11. Уроки из live-тестирования (Phase 2)
+- Go JSON case-insensitive matching: `json:"e"` matches BOTH `"e"` and `"E"` в JSON. Binance шлёт `"e":"trade"` и `"E":1781413832380` (число). Решение: `map[string]json.RawMessage` для точного маппинга ключей.
+- `clickhouse-go/v2` не принимает `float64` в `Decimal(18,1)` колонки. Используем `shopspring/decimal`.
+- Unexported поля ( lowercase `t`) не маппятся `json.Unmarshal`. Все JSON-поля должны быть exported.
+- INDEX в ClickHouse CREATE TABLE: синтаксис требует правильного порядка (INDEX до TTL).
 ```
