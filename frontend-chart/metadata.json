@@ -1,0 +1,6 @@
+{
+  "name": "PROCLUSTER",
+  "description": "Professional-grade Cryptocurrency Cluster & Footprint Analytics Terminal with ticking order-flow visualization, Level 2 depth map, live trading tape, and server-side machine learning diagnostics with Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://mimo.xiaomi.com//config.json",
+  "agent": {
+    "build": {
+      "mode": "primary",
+      "model": "mimo/mimo-v2.5",
+      "temperature": 0.2
+    },
+    "plan": {
+      "mode": "primary",
+      "model": "mimo/mimo-v2.5",
+      "temperature": 0.1
+    },
+    "security-auditor": {
+      "description": "Аудит безопасности: инъекции, авторизация, утечки секретов, rate-limit, IDOR",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "permission": {
+        "edit": "deny",
+        "bash": { "*": "ask", "grep *": "allow", "git diff": "allow", "git log*": "allow" }
+      }
+    },
+    "code-reviewer": {
+      "description": "Ревью кода: качество, баги, edge-cases, производительность",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "permission": { "edit": "deny" }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+.env
+node_modules/
+dist/
+*.log
+*.exe
+backend/data/
+clickhouse_data/
+redis_data/

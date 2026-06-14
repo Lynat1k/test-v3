@@ -1,0 +1,83 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/logging.xml:ro
+    environment:
+      CLICKHOUSE_DB: procluster
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    networks:
+      - backend
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      PORT: "8080"
+      REDIS_URL: "redis://redis:6379"
+      CLICKHOUSE_URL: "clickhouse://clickhouse:9000"
+      SQLITE_PATH: "/data/procluster.db"
+      JWT_SECRET: "${JWT_SECRET}"
+    volumes:
+      - backend_data:/data
+    depends_on:
+      - clickhouse
+      - redis
+    networks:
+      - backend
+    restart: unless-stopped
+
+  frontend-chart:
+    build: ./frontend-chart
+    networks:
+      - backend
+    restart: unless-stopped
+
+  frontend-landing:
+    build: ./frontend-landing
+    networks:
+      - backend
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend-landing
+      - frontend-chart
+      - backend
+    networks:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  clickhouse_data:
+  redis_data:
+  backend_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  backend:
+    driver: bridge
