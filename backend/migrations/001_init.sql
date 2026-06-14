@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS clusters_futures
     ask           Decimal(18, 1),
     volume        Decimal(18, 1) MATERIALIZED bid + ask,
     is_poc        UInt8 DEFAULT 0,
-    updated_at    DateTime DEFAULT now()
+    updated_at    DateTime DEFAULT now(),
+    INDEX idx_price price TYPE minmax GRANULARITY 4
 )
 ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(candle_time)
@@ -60,7 +61,8 @@ CREATE TABLE IF NOT EXISTS clusters_spot
     ask           Decimal(18, 1),
     volume        Decimal(18, 1) MATERIALIZED bid + ask,
     is_poc        UInt8 DEFAULT 0,
-    updated_at    DateTime DEFAULT now()
+    updated_at    DateTime DEFAULT now(),
+    INDEX idx_price price TYPE minmax GRANULARITY 4
 )
 ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(candle_time)
@@ -78,7 +80,8 @@ CREATE TABLE IF NOT EXISTS dom_snapshots_futures
     price       Decimal(18, 1),
     bid_qty     Decimal(18, 1),
     ask_qty     Decimal(18, 1),
-    updated_at  DateTime DEFAULT now()
+    updated_at  DateTime DEFAULT now(),
+    INDEX idx_price price TYPE minmax GRANULARITY 4
 )
 ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(snap_time)
@@ -95,7 +98,8 @@ CREATE TABLE IF NOT EXISTS dom_snapshots_spot
     price       Decimal(18, 1),
     bid_qty     Decimal(18, 1),
     ask_qty     Decimal(18, 1),
-    updated_at  DateTime DEFAULT now()
+    updated_at  DateTime DEFAULT now(),
+    INDEX idx_price price TYPE minmax GRANULARITY 4
 )
 ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(snap_time)
