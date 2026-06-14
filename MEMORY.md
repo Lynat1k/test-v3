@@ -79,8 +79,8 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - [x] 1 Схема ClickHouse + правила агрегации (docs/01) [build] ✅ DONE
 - [x] 2 Ingest Binance WS + Redis live-агрегация [compose] ✅ DONE (live-tested)
 - [x] 3 History loader (data.binance.vision) + агрегация + округление [build] ✅ DONE
-- [ ] 4 REST API: candles(last-700+догрузка), DOM live, fear&greed [build]
-- [ ] 5 WS-хаб на фронт (батч 100-500ms) [build]
+- [x] 4 REST API: candles(last-700+догрузка), DOM live, fear&greed [build] ✅ DONE
+- [x] 5 WS-хаб на фронт (батч 100-500ms) [build] ✅ DONE
 - [ ] 6 Адаптация движка + интерактив (zoom/SHIFT/CTRL/auto/workspace) [compose]
 - [ ] 7 Auth: JWT + Google OAuth (SQLite) [build]
 - [ ] 8 Тарифы + ограничения истории/индикаторов [build]
@@ -103,4 +103,10 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - **Trades have continuous tradeId**: Binance trades (NOT aggTrades) have sequential IDs. Gaps = real data loss → must be logged.
 - **ReplacingMergeTree idempotency**: Re-INSERTing same data creates temporary duplicates. Deduplication happens on background merge. Queries use `FINAL` keyword for correct results.
 - **Memory-efficient streaming**: Process 1.8M trades/day without loading everything into memory — CSV parsed line-by-line, per-candle aggregators created lazily.
-```
+
+## 13. Уроки из WS-хаба (Phase 5)
+- **Backpressure via buffered channel**: Use `select { case c.send <- data: default: c.Close() }` — non-blocking send with immediate disconnect on buffer full. One goroutine per tick, not per client.
+- **Single ticker goroutine**: Hub uses one `time.Ticker` at 200ms for all subscriptions. Iterates unique sub keys, reads Redis, broadcasts. No goroutine-per-client timer.
+- **Subscription key encoding**: `market:symbol:tf:compression` as flat string for map key. Parse back with colon-split from the right (compression is last, has no colons in value).
+- **CandleCloser callback**: Added `SetOnClose(fn CloseFunc)` to notify WS hub on candle close. Callback runs in a goroutine to not block the closer loop.
+- **gorilla/websocket already in go.mod**: No new dependencies needed for WS hub.

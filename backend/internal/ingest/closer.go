@@ -10,12 +10,16 @@ import (
 	"procluster-backend/internal/store"
 )
 
+// CloseFunc is called when a candle is closed, with the cells and metadata.
+type CloseFunc func(market, symbol, tf string, candleTimeUnix int64, cells []aggregate.ClusterCell)
+
 // CandleCloser periodically closes candles and flushes to ClickHouse + cache.
 type CandleCloser struct {
 	ws       *WSClient
 	ch       *store.ClickHouse
 	rdb      *cache.RedisCache
 	interval time.Duration
+	onClose  CloseFunc
 }
 
 // NewCandleCloser creates a new closer.
@@ -27,6 +31,11 @@ func NewCandleCloser(ws *WSClient, ch *store.ClickHouse, rdb *cache.RedisCache, 
 		rdb:      rdb,
 		interval: time.Duration(secs) * time.Second,
 	}
+}
+
+// SetOnClose sets the callback for candle close events.
+func (cl *CandleCloser) SetOnClose(fn CloseFunc) {
+	cl.onClose = fn
 }
 
 // nextCloseTime returns the next candle close time for the given timeframe.
@@ -105,6 +114,11 @@ func (cl *CandleCloser) Run(ctx context.Context) {
 
 		if err := cl.rdb.DelAggKey(ctx, liveKey); err != nil {
 			log.Printf("[closer] del live key error: %v", err)
+		}
+
+		// Notify WS hub of candle close
+		if cl.onClose != nil {
+			go cl.onClose(cl.ws.cfg.Market, cl.ws.cfg.Symbol, cl.ws.cfg.Timeframe, candleTimeUnix, cells)
 		}
 
 		log.Printf("[closer] closed candle %s %s %s at %d, %d cells",

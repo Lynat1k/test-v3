@@ -98,3 +98,15 @@ func jsonError(w http.ResponseWriter, status int, code, msg string) {
 func logReq(r *http.Request) {
 	log.Printf("[API] %s %s", r.Method, r.URL.String())
 }
+
+func (s *Server) GetConfig(symbol, market string) (aggregate.TickerConfig, bool) {
+	return s.validator.GetConfig(symbol, market)
+}
+
+func (s *Server) ValidateCompression(comp uint32, tc aggregate.TickerConfig) error {
+	return s.validator.ValidateCompression(comp, tc)
+}
+
+func (s *Server) ValidateTF(tf string, tc aggregate.TickerConfig) error {
+	return s.validator.ValidateTF(tf, tc)
+}

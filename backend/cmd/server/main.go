@@ -18,6 +18,7 @@ import (
 	"procluster-backend/internal/history"
 	"procluster-backend/internal/ingest"
 	"procluster-backend/internal/store"
+	"procluster-backend/internal/ws"
 )
 
 func envOr(key, def string) string {
@@ -151,6 +152,21 @@ func runServer() {
 		})
 	}
 
+	log.Printf("Started ingest for %d ticker(s)", len(tickers))
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	apiServer := api.NewServer(ch, rdb, configs)
+	apiServer.SetupRoutes(mux)
+
+	hub := ws.NewHub(rdb, apiServer, ws.HubConfig{})
+	go hub.Run(ctx)
+
 	for _, td := range tickers {
 		for _, tf := range td.tfs {
 			tfCopy := tf
@@ -169,21 +185,15 @@ func runServer() {
 			go ws.Run(ctx, rdb)
 
 			closer := ingest.NewCandleCloser(ws, ch, rdb, tfCopy)
+			closer.SetOnClose(func(market, symbol, tf string, candleTimeUnix int64, cells []aggregate.ClusterCell) {
+				hub.NotifyCandleClose(market, symbol, tf, candleTimeUnix, cells)
+			})
 			go closer.Run(ctx)
 		}
 	}
 
-	log.Printf("Started ingest for %d ticker(s)", len(tickers))
-
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-
-	apiServer := api.NewServer(ch, rdb, configs)
-	apiServer.SetupRoutes(mux)
+	wsHandler := ws.NewHandler(hub, 10)
+	mux.Handle("/ws", wsHandler)
 
 	log.Printf("Server listening on :%s", port)
 	go func() {
