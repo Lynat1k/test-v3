@@ -1,8 +1,8 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -132,10 +132,7 @@ func (c *WSClient) connect(ctx context.Context, rdb *cache.RedisCache) error {
 			continue
 		}
 
-		var evt struct {
-			E string `json:"e"`
-		}
-		if err := json.Unmarshal(msg, &evt); err != nil || evt.E != "trade" {
+		if !bytes.Contains(msg, []byte(`"e":"trade"`)) {
 			continue
 		}
 
@@ -148,10 +145,12 @@ func (c *WSClient) connect(ctx context.Context, rdb *cache.RedisCache) error {
 		gapStart, gapEnd, hasGap := c.agg.ProcessTrade(trade)
 
 		if hasGap {
+			log.Printf("[%s/%s] GAP DETECTED: %d-%d", c.cfg.Market, c.cfg.Symbol, gapStart, gapEnd)
 			gapTrades, err := c.gapFill.FillGap(ctx, gapStart, gapEnd)
 			if err != nil {
 				log.Printf("[%s/%s] gap-fill error: %v", c.cfg.Market, c.cfg.Symbol, err)
 			} else {
+				log.Printf("[%s/%s] gap-filled %d trades", c.cfg.Market, c.cfg.Symbol, len(gapTrades))
 				for _, gt := range gapTrades {
 					c.agg.ProcessTrade(gt)
 				}

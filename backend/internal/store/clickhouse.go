@@ -8,6 +8,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/shopspring/decimal"
 )
 
 // ClusterRow is a single cluster cell row for batch insert.
@@ -66,6 +67,10 @@ func (ch *ClickHouse) ApplyMigrations(path string) error {
 	return nil
 }
 
+func toDecimal18(v float64) decimal.Decimal {
+	return decimal.NewFromFloat(v).Round(1)
+}
+
 // BatchInsert inserts cluster rows into the appropriate table.
 func (ch *ClickHouse) BatchInsert(market string, rows []ClusterRow) error {
 	if len(rows) == 0 {
@@ -87,9 +92,9 @@ func (ch *ClickHouse) BatchInsert(market string, rows []ClusterRow) error {
 			r.Symbol,
 			r.Timeframe,
 			r.CandleTime,
-			r.Price,
-			r.Bid,
-			r.Ask,
+			toDecimal18(r.Price),
+			toDecimal18(r.Bid),
+			toDecimal18(r.Ask),
 		); err != nil {
 			return fmt.Errorf("batch append: %w", err)
 		}

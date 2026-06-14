@@ -13,17 +13,6 @@ import (
 	"procluster-backend/internal/aggregate"
 )
 
-// BinanceTradeMsg represents the relevant fields from a Binance trade stream message.
-type BinanceTradeMsg struct {
-	E string  `json:"e"` // Event type
-	T int64   `json:"T"` // Trade time (ms)
-	S string  `json:"s"` // Symbol
-	t int64   `json:"t"` // Trade ID
-	P string  `json:"p"` // Price
-	Q string  `json:"q"` // Quantity
-	M bool    `json:"m"` // Is buyer maker
-}
-
 // TradeHandler is called for each sorted, deduplicated trade.
 type TradeHandler func(trade aggregate.Trade)
 
@@ -44,25 +33,58 @@ func SortAndDedup(trades []aggregate.Trade, seen map[int64]bool) []aggregate.Tra
 }
 
 // ParseTradeMessage parses a Binance trade JSON message into a Trade.
+// Uses map-based parsing to avoid Go's case-insensitive JSON field matching
+// (e.g. "e" matching both "e" and "E" keys in Binance messages).
 func ParseTradeMessage(data []byte) (aggregate.Trade, error) {
-	var msg BinanceTradeMsg
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return aggregate.Trade{}, err
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return aggregate.Trade{}, fmt.Errorf("unmarshal raw: %w", err)
 	}
-	price, err := strconv.ParseFloat(msg.P, 64)
+
+	getString := func(key string) string {
+		v, ok := raw[key]
+		if !ok {
+			return ""
+		}
+		var s string
+		json.Unmarshal(v, &s)
+		return s
+	}
+
+	getInt64 := func(key string) int64 {
+		v, ok := raw[key]
+		if !ok {
+			return 0
+		}
+		var n int64
+		json.Unmarshal(v, &n)
+		return n
+	}
+
+	getBool := func(key string) bool {
+		v, ok := raw[key]
+		if !ok {
+			return false
+		}
+		var b bool
+		json.Unmarshal(v, &b)
+		return b
+	}
+
+	price, err := strconv.ParseFloat(getString("p"), 64)
 	if err != nil {
 		return aggregate.Trade{}, fmt.Errorf("parse price: %w", err)
 	}
-	qty, err := strconv.ParseFloat(msg.Q, 64)
+	qty, err := strconv.ParseFloat(getString("q"), 64)
 	if err != nil {
 		return aggregate.Trade{}, fmt.Errorf("parse qty: %w", err)
 	}
 	return aggregate.Trade{
-		TradeID:      msg.t,
+		TradeID:      getInt64("t"),
 		Price:        price,
 		Qty:          qty,
-		TradeTimeMs:  msg.T,
-		IsBuyerMaker: msg.M,
+		TradeTimeMs:  getInt64("T"),
+		IsBuyerMaker: getBool("m"),
 	}, nil
 }
 
