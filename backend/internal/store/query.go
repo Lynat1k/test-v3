@@ -106,12 +106,13 @@ func (ch *ClickHouse) QueryCandles(ctx context.Context, market, symbol, tf strin
 }
 
 // QueryTickerConfigs reads all enabled ticker configs from ClickHouse.
+// Uses FINAL to deduplicate ReplacingMergeTree rows.
 func (ch *ClickHouse) QueryTickerConfigs(ctx context.Context) ([]aggregate.TickerConfig, error) {
 	query := `
 		SELECT symbol, market, toFloat64(tick_size), base_compression,
 		       compression_levels, default_compression, ttl_days,
 		       dom_snapshot_seconds, enabled
-		FROM ticker_config
+		FROM ticker_config FINAL
 		WHERE enabled = 1
 	`
 

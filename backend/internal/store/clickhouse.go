@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -49,19 +50,58 @@ func (ch *ClickHouse) Close() error {
 }
 
 // ApplyMigrations reads and executes the migration SQL file.
+// The INSERT INTO ticker_config is made idempotent: only seeds if table is empty.
 func (ch *ClickHouse) ApplyMigrations(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read migration: %w", err)
 	}
 	ctx := context.Background()
+
+	// Check if ticker_config already has data
+	var count uint64
+	if err := ch.conn.QueryRow(ctx, "SELECT count() FROM ticker_config").Scan(&count); err != nil {
+		count = 0
+	}
+
 	for _, stmt := range strings.Split(string(data), ";") {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
 		}
+		// Skip INSERT INTO ticker_config if table already has rows
+		if count > 0 && strings.Contains(strings.ToUpper(stmt), "INSERT INTO") &&
+			strings.Contains(strings.ToUpper(stmt), "TICKER_CONFIG") {
+			continue
+		}
 		if err := ch.conn.Exec(ctx, stmt); err != nil {
 			return fmt.Errorf("migration exec: %w\nstmt: %s", err, stmt)
+		}
+	}
+
+	// One-time cleanup: deduplicate ticker_config by deleting duplicates
+	if err := ch.deduplicateTickerConfig(ctx); err != nil {
+		log.Printf("warning: deduplicate ticker_config: %v", err)
+	}
+
+	return nil
+}
+
+// deduplicateTickerConfig removes duplicate rows keeping the one with latest updated_at.
+func (ch *ClickHouse) deduplicateTickerConfig(ctx context.Context) error {
+	// ReplacingMergeTree deduplicates on FINAL, but we need to force it.
+	// Simplest: count unique vs total, if different → optimize table.
+	var total, unique uint64
+	if err := ch.conn.QueryRow(ctx, "SELECT count() FROM ticker_config").Scan(&total); err != nil {
+		return err
+	}
+	if err := ch.conn.QueryRow(ctx, "SELECT count() FROM ticker_config FINAL").Scan(&unique); err != nil {
+		return err
+	}
+	if total > unique {
+		log.Printf("ticker_config: %d total rows, %d unique — deduplicating", total, unique)
+		if err := ch.conn.Exec(ctx, "OPTIMIZE TABLE ticker_config FINAL"); err != nil {
+			return fmt.Errorf("optimize: %w", err)
 		}
 	}
 	return nil

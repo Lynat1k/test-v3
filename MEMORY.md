@@ -111,6 +111,7 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - **CandleCloser callback**: Added `SetOnClose(fn CloseFunc)` to notify WS hub on candle close. Callback runs in a goroutine to not block the closer loop.
 - **gorilla/websocket already in go.mod**: No new dependencies needed for WS hub.
 - **One WS connection per (symbol, market), NOT per timeframe**: Binance trade stream for a pair feeds ALL timeframes. Created WSClient with `[]TFAggregator` map — one WS connection, multiple aggregators. CandleCloser takes aggregator directly, not WSClient. Result: 2 connections for BTCUSDT (1 futures + 1 spot), not 10.
+- **ClickHouse ticker_config idempotent seed**: Migration INSERT runs every restart → duplicates. Fix: (1) ApplyMigrations skips INSERT if table has rows, (2) QueryTickerConfigs uses `SELECT ... FINAL` for ReplacingMergeTree dedup, (3) Go-level dedup by (symbol, market) before starting WS. OPTIMIZE TABLE FINAL for cleanup.
 
 ## 14. Уроки из адаптации движка (Phase 6)
 - **Backend WS hub protocol**: Client sends `{"action":"subscribe","symbol":"...","market":"...","tf":"...","compression":N}`, server responds with `{"type":"update","candle":{...}}` every 200ms and `{"type":"close","candle":{...}}` + `{"type":"open","candle_time":...}` on candle close. Messages may be batched with `\n` separator in a single WebSocket frame.

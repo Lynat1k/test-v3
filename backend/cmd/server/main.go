@@ -128,6 +128,21 @@ func runServer() {
 	}
 	log.Printf("Loaded %d ticker configs", len(configs))
 
+	// Deduplicate configs by (symbol, market) — safety net against residual duplicates
+	seen := make(map[string]bool)
+	unique := configs[:0]
+	for _, tc := range configs {
+		key := tc.Symbol + ":" + tc.Market
+		if seen[key] {
+			log.Printf("dedup: skipping duplicate ticker config %s %s", tc.Symbol, tc.Market)
+			continue
+		}
+		seen[key] = true
+		unique = append(unique, tc)
+	}
+	configs = unique
+	log.Printf("Deduplicated to %d unique ticker configs", len(configs))
+
 	type tickerDef struct {
 		symbol string
 		market string
