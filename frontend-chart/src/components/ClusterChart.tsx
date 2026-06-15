@@ -631,13 +631,23 @@ export default function ClusterChart({
   const scrollRightPadding = Math.round(Number(visibleClientWidth || 800) * 0.85);
   const scrollWidth = candles.length * (candleWidth + candleSpacing) + margin.left + margin.right + scrollRightPadding;
 
-  // Zoom threshold: Detailed cluster footprint mode vs default Candlestick view
-  const isDetailedModeCalculated = candleWidth >= 15;
-  const isDetailedMode = candleType === "japanese"
+  // Auto mode: switch view based on visible candle count (docs/02 §7)
+  // <70 candles = clusters, 70-300 = footprint, >=300 = Japanese candlesticks
+  const visibleCandleCount = visibleClientWidth > 0
+    ? Math.floor(visibleClientWidth / Math.max(1, candleWidth + candleSpacing))
+    : 40;
+  const autoView = visibleCandleCount < 70
+    ? "clusters"
+    : visibleCandleCount < 300
+      ? "footprint"
+      : "japanese";
+
+  // Effective candle type for rendering (auto mode resolves to concrete type)
+  const effectiveCandleType = candleType === "auto" ? autoView : candleType;
+
+  const isDetailedMode = effectiveCandleType === "japanese"
     ? false
-    : (candleType === "footprint" || candleType === "clusters"
-        ? true
-        : isDetailedModeCalculated);
+    : (effectiveCandleType === "footprint" || effectiveCandleType === "clusters");
 
   // Panning drag-to-scroll handlers (supports 2D movement)
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -1917,7 +1927,7 @@ export default function ClusterChart({
             candleMaxSingleVal = cell.ask;
           }
         }
-        const isClustersMode = candleType === "clusters";
+        const isClustersMode = effectiveCandleType === "clusters";
 
         // Place the vertical separator/spine exactly in the center for symmetrical Bid/Ask columns
         const sepX = x + Math.round(candleWidth / 2);

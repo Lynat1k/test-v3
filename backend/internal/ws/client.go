@@ -88,8 +88,12 @@ func (c *Client) WritePump() {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
+
+			log.Printf("[WS] writePump WRITE to %s bytes=%d", c.conn.RemoteAddr(), len(msg))
+
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
+				log.Printf("[WS] WRITE FAILED to %s: NextWriter error: %v", c.conn.RemoteAddr(), err)
 				return
 			}
 			w.Write(msg)
@@ -102,6 +106,7 @@ func (c *Client) WritePump() {
 			}
 
 			if err := w.Close(); err != nil {
+				log.Printf("[WS] WRITE FAILED to %s: Close error: %v", c.conn.RemoteAddr(), err)
 				return
 			}
 

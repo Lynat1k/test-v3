@@ -338,6 +338,7 @@ func (h *Hub) broadcastSub(ctx context.Context, key string) {
 	for _, c := range clients {
 		select {
 		case c.send <- data:
+			log.Printf("[WS] broadcast -> client send %s (key=%s, %d bytes)", c.RemoteAddr(), key, len(data))
 		default:
 			// Buffer full — drop and disconnect
 			log.Printf("[WS] backpressure disconnect: %s (buf full for %s)", c.RemoteAddr(), key)

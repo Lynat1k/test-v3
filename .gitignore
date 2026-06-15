@@ -6,3 +6,10 @@ dist/
 backend/data/
 clickhouse_data/
 redis_data/
+
+server_log.txt
+backend/server_log.txt
+base.json
+x2.json
+PROCLUSTER3-main/
+ws_debug*.go

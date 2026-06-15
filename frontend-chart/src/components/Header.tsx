@@ -149,26 +149,14 @@ export default function Header({
     setShowLoginModal(false);
   };
 
-  // Custom stenciled PROCLUSTER Logo - responsive Vector SVG / Typography design
+  // PROCLUSTER Logo — imported image
   const Logo = () => (
     <div className="flex items-center gap-3 select-none cursor-pointer group hover:opacity-95 transition-all duration-200">
-      {/* Visual Identity Icon Frame */}
-      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br from-yellow-400 via-amber-500 to-amber-600 flex items-center justify-center shadow-md scale-100 group-hover:scale-105 active:scale-95 transition-all duration-200 ${
-        isLight ? "shadow-amber-600/10" : "shadow-amber-500/15"
-      }`}>
-        <Layers className="w-5.5 h-5.5 text-slate-950 stroke-[2.5]" />
-      </div>
-      <div className="flex flex-col">
-        <span className="text-lg font-black tracking-tight leading-none font-sans">
-          <span className={isLight ? "text-slate-900" : "text-white"}>PRO</span>
-          <span className={isLight ? "text-amber-600" : "text-amber-400"}>CLUSTER</span>
-        </span>
-        <span className={`text-[9px] font-mono tracking-widest font-bold uppercase leading-none mt-1.5 ${
-          isLight ? "text-slate-500" : "text-slate-400"
-        }`}>
-          Cluster Analytics
-        </span>
-      </div>
+      <img 
+        src="/src/assets/images/procluster_logo_1779485281399.png" 
+        alt="ProCluster" 
+        className="h-10 w-auto object-contain group-hover:scale-105 active:scale-95 transition-all duration-200"
+      />
     </div>
   );
 
