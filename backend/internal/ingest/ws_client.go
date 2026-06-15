@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,7 @@ import (
 
 	"procluster-backend/internal/aggregate"
 	"procluster-backend/internal/cache"
+	"procluster-backend/internal/proxy"
 )
 
 // WSConfig holds parameters for a WS client instance.
@@ -103,7 +106,16 @@ func (c *WSClient) Run(ctx context.Context, rdb *cache.RedisCache) {
 func (c *WSClient) connect(ctx context.Context, rdb *cache.RedisCache) error {
 	connURL := c.wsURL()
 
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, connURL, nil)
+	dialer := websocket.Dialer{
+		Proxy: http.ProxyFromEnvironment,
+	}
+	if proxy.Enabled() {
+		dialer.Proxy = func(_ *http.Request) (*url.URL, error) {
+			return proxy.ProxyURL(), nil
+		}
+	}
+
+	conn, _, err := dialer.DialContext(ctx, connURL, nil)
 	if err != nil {
 		return fmt.Errorf("ws dial: %w", err)
 	}

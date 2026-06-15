@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"procluster-backend/internal/proxy"
 )
 
 // data.binance.vision URL patterns:
@@ -135,10 +137,9 @@ func DateRange(from, to time.Time) []string {
 }
 
 // NewRateLimitedClient returns an HTTP client with generous timeouts for large ZIP files.
+// Uses proxy if BINANCE_PROXY is set.
 func NewRateLimitedClient() *http.Client {
-	return &http.Client{
-		Timeout: 10 * time.Minute,
-	}
+	return proxy.HTTPClient()
 }
 
 // LogProgress logs download/processing progress.

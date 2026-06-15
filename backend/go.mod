@@ -1,6 +1,6 @@
 module procluster-backend
 
-go 1.24.1
+go 1.25.0
 
 require github.com/redis/go-redis/v9 v9.7.3
 
@@ -22,5 +22,6 @@ require (
 	go.opentelemetry.io/otel v1.41.0 // indirect
 	go.opentelemetry.io/otel/trace v1.41.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 )

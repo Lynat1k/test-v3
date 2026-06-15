@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"procluster-backend/internal/aggregate"
+	"procluster-backend/internal/proxy"
 )
 
 // TradeHandler is called for each sorted, deduplicated trade.
@@ -118,7 +119,7 @@ func FetchHistoricalTrades(ctx context.Context, symbol, market string, fromID in
 	}
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := proxy.HTTPClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
