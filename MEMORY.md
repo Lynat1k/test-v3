@@ -82,7 +82,15 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - [x] 3 History loader (data.binance.vision) + агрегация + округление [build] ✅ DONE
 - [x] 4 REST API: candles(last-700+догрузка), DOM live, fear&greed [build] ✅ DONE
 - [x] 5 WS-хаб на фронт (батч 100-500ms) [build] ✅ DONE
-- [x] 6 Адаптация движка + интерактив (zoom/SHIFT/CTRL/auto/workspace) [compose] ✅ DONE
+- [~] 6 Адаптация движка + интерактив [compose] ЧАСТИЧНО DONE
+  - ✅ REST /api/candles + WS hub работают
+  - ✅ 1 WS-соединение на (symbol, market), агрегаторы для всех ТФ
+  - ✅ ticker_config дедупликация (idempotent seed + FINAL)
+  - ✅ BINANCE_PROXY: socks5:// и http:// через Happ
+  - ✅ WS singleton (React 19 StrictMode safe), per-subscription callbacks
+  - ✅ Google Fonts в <link> (CSS @import fix)
+  - ⚠️ ГЛАВНЫЙ БАГ: realtime не отображается на графике. Сервер шлёт broadcast update (лог: "broadcast: key=futures:BTCUSDT:1m:125 cells=N clients=1"), НО свеча не двигается. Обрыв на клиенте при приёме/отрисовке update.
+  - ⚠️ График показывает старые свечи (loadhistory), новые за сегодня не появляются. REST отдаёт старый диапазон.
 - [ ] 7 Auth: JWT + Google OAuth (SQLite) [build]
 - [ ] 8 Тарифы + ограничения истории/индикаторов [build]
 - [ ] 9 Cluster Search (docs/03) [compose]
