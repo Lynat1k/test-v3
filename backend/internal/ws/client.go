@@ -26,9 +26,10 @@ type Client struct {
 	conn *websocket.Conn
 	send chan []byte
 
-	mu     sync.Mutex
+	mu      sync.Mutex
+	writeMu sync.Mutex
 	subKeys map[string]bool
-	closed bool
+	closed  bool
 }
 
 // NewClient creates a new Client.
@@ -44,6 +45,14 @@ func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 // RemoteAddr returns the remote network address.
 func (c *Client) RemoteAddr() net.Addr {
 	return c.conn.RemoteAddr()
+}
+
+// writeFrame serializes all writes to the WebSocket connection.
+func (c *Client) writeFrame(mt int, data []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	return c.conn.WriteMessage(mt, data)
 }
 
 // ReadPump pumps messages from the WebSocket connection to the hub.
@@ -84,15 +93,14 @@ func (c *Client) WritePump() {
 	for {
 		select {
 		case msg, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				c.writeFrame(websocket.CloseMessage, []byte{})
 				return
 			}
 
 			log.Printf("[WS] writePump GOT msg for %s bytes=%d", c.conn.RemoteAddr(), len(msg))
 
-			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			if err := c.writeFrame(websocket.TextMessage, msg); err != nil {
 				log.Printf("[WS] writePump WRITE ERROR to %s: %v", c.conn.RemoteAddr(), err)
 				return
 			}
@@ -100,8 +108,7 @@ func (c *Client) WritePump() {
 			log.Printf("[WS] writePump SENT to %s", c.conn.RemoteAddr())
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			if err := c.writeFrame(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		}
