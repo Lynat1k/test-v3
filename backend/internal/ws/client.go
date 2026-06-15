@@ -89,24 +89,7 @@ func (c *Client) WritePump() {
 				return
 			}
 
-			log.Printf("[WS] writePump WRITE to %s bytes=%d", c.conn.RemoteAddr(), len(msg))
-
-			w, err := c.conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				log.Printf("[WS] WRITE FAILED to %s: NextWriter error: %v", c.conn.RemoteAddr(), err)
-				return
-			}
-			w.Write(msg)
-
-			// Drain queued messages into current write
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				w.Write([]byte("\n"))
-				w.Write(<-c.send)
-			}
-
-			if err := w.Close(); err != nil {
-				log.Printf("[WS] WRITE FAILED to %s: Close error: %v", c.conn.RemoteAddr(), err)
+			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				return
 			}
 
