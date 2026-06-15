@@ -136,6 +136,8 @@ func (h *Hub) Subscribe(c *Client, market, symbol, tf string, compression uint32
 	}
 	set[c] = struct{}{}
 	h.mu.Unlock()
+
+	log.Printf("[WS] subscribed: %s (key=%s, total subs=%d)", c.RemoteAddr(), key, len(h.subs))
 	return nil
 }
 
@@ -230,7 +232,13 @@ func (h *Hub) broadcastTick(ctx context.Context) {
 	for key := range h.subs {
 		keys[key] = true
 	}
+	numSubs := len(h.subs)
+	numKeys := len(keys)
 	h.mu.RUnlock()
+
+	if numKeys > 0 {
+		log.Printf("[WS] broadcastTick: %d unique sub keys, %d total subs", numKeys, numSubs)
+	}
 
 	for key := range keys {
 		h.broadcastSub(ctx, key)
@@ -243,6 +251,7 @@ func (h *Hub) broadcastSub(ctx context.Context, key string) {
 
 	tc, ok := h.Validator.GetConfig(symbol, market)
 	if !ok {
+		log.Printf("[WS] broadcastSub: no config for %s/%s", market, symbol)
 		return
 	}
 	if compression == 0 {
@@ -253,13 +262,19 @@ func (h *Hub) broadcastSub(ctx context.Context, key string) {
 	nowSec := time.Now().Unix()
 	secs := aggregate.TfSeconds[tf]
 	if secs == 0 {
+		log.Printf("[WS] broadcastSub: unknown tf %q", tf)
 		return
 	}
 	candleTimeUnix := (nowSec / secs) * secs
 
 	aggKey := aggregate.RedisAggKey(market, symbol, tf, candleTimeUnix)
 	cells, err := h.rdb.GetAggCells(ctx, aggKey)
-	if err != nil || len(cells) == 0 {
+	if err != nil {
+		log.Printf("[WS] broadcastSub: redis error for %s: %v", key, err)
+		return
+	}
+	if len(cells) == 0 {
+		// Not an error — just no data yet for this candle
 		return
 	}
 
@@ -319,6 +334,7 @@ func (h *Hub) broadcastSub(ctx context.Context, key string) {
 	}
 	h.mu.RUnlock()
 
+	log.Printf("[WS] broadcast: key=%s cells=%d clients=%d compression=%d", key, len(cells), len(clients), compression)
 	for _, c := range clients {
 		select {
 		case c.send <- data:
