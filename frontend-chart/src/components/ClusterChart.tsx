@@ -1641,11 +1641,11 @@ export default function ClusterChart({
   const hoveredCandle = (hoveredCandleIdx >= 0 && hoveredCandleIdx < candles.length) ? candles[hoveredCandleIdx] : null;
 
   const deltaValueText = hoveredCandle 
-    ? `${hoveredCandle.delta >= 0 ? "+" : ""}${hoveredCandle.delta.toFixed(1)}K`
+    ? `${(hoveredCandle.delta ?? 0) >= 0 ? "+" : ""}${(hoveredCandle.delta ?? 0).toFixed(1)}K`
     : "--";
 
   const cvdValueText = (hoveredCandleIdx >= 0 && hoveredCandleIdx < cumulativeDeltaPoints.length)
-    ? `${cumulativeDeltaPoints[hoveredCandleIdx].value >= 0 ? "+" : ""}${cumulativeDeltaPoints[hoveredCandleIdx].value.toFixed(1)}K`
+    ? `${(cumulativeDeltaPoints[hoveredCandleIdx].value ?? 0) >= 0 ? "+" : ""}${(cumulativeDeltaPoints[hoveredCandleIdx].value ?? 0).toFixed(1)}K`
     : "--";
 
   useEffect(() => {
@@ -2112,11 +2112,11 @@ export default function ClusterChart({
 
             // Intelligent adaptive precision volume formatter - prevents BTC/ETH cell numbers from showing as empty "0.0 x 0.0"
             const getFormatter = (maxSingleVal: number) => {
-              if (maxSingleVal < 0.1) return (v: number) => v === 0 ? "0" : v.toFixed(4);
-              if (maxSingleVal < 1.0) return (v: number) => v === 0 ? "0" : v.toFixed(3);
-              if (maxSingleVal < 10.0) return (v: number) => v === 0 ? "0" : v.toFixed(2);
-              if (maxSingleVal < 100.0) return (v: number) => v === 0 ? "0" : v.toFixed(1);
-              return (v: number) => v === 0 ? "0" : v.toFixed(0);
+              if (maxSingleVal < 0.1) return (v: number) => (!v ? "0" : v.toFixed(4));
+              if (maxSingleVal < 1.0) return (v: number) => (!v ? "0" : v.toFixed(3));
+              if (maxSingleVal < 10.0) return (v: number) => (!v ? "0" : v.toFixed(2));
+              if (maxSingleVal < 100.0) return (v: number) => (!v ? "0" : v.toFixed(1));
+              return (v: number) => (!v ? "0" : v.toFixed(0));
             };
 
             const fmt = getFormatter(visibleMaxSingleVol);
@@ -2453,7 +2453,7 @@ export default function ClusterChart({
           ctx.textAlign = "center";
           ctx.fillStyle = dStyles.textStyle;
           const lblY = candle.delta >= 0 ? deltaMidY - barHeight - 4 : deltaMidY + barHeight + 11;
-          const deltaText = (candle.delta >= 0 ? "+" : "") + candle.delta.toFixed(0) + "K";
+          const deltaText = (candle.delta >= 0 ? "+" : "") + (candle.delta ?? 0).toFixed(0) + "K";
           ctx.fillText(deltaText, x + candleWidth / 2, lblY);
         }
         ctx.restore();
