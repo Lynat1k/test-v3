@@ -99,15 +99,16 @@ export class WsClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = 1000;
   private maxReconnectDelay = 10000;
-  private isUnmounting = false;
-  private subscriptions: Array<{ symbol: string; market: string; tf: string; compression: number }> = [];
+  private destroyed = false;
+  private activeSub: { symbol: string; market: string; tf: string; compression: number } | null = null;
+  private pendingSub: { symbol: string; market: string; tf: string; compression: number } | null = null;
 
   constructor(config: WsClientConfig) {
     this.config = config;
   }
 
   connect() {
-    if (this.isUnmounting) return;
+    if (this.destroyed) return;
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -116,51 +117,47 @@ export class WsClient {
     this.ws = ws;
 
     ws.onopen = () => {
-      if (this.isUnmounting) { this.cleanClose(ws); return; }
-      console.log("[WS Client] Connected to", this.config.url);
+      if (this.destroyed) { ws.close(); return; }
+      console.log("[WS] Connected to", this.config.url);
       this.reconnectDelay = 1000;
       this.config.onConnect?.();
-      for (const sub of this.subscriptions) {
+      // Send pending or active subscription
+      const sub = this.pendingSub || this.activeSub;
+      if (sub) {
         this.sendSubscribe(sub);
       }
     };
 
     ws.onmessage = (event) => {
-      if (this.isUnmounting) return;
+      if (this.destroyed) return;
       const lines = event.data.split("\n");
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
           const msg: WsMessage = JSON.parse(line);
+          if (msg.type === "update" || msg.type === "close") {
+            console.debug("[WS]", msg.type, msg.candle?.time);
+          }
           this.handleMessage(msg);
         } catch (e) {
-          console.error("[WS Client] Parse error:", e);
+          console.error("[WS] Parse error:", e);
         }
       }
     };
 
     ws.onerror = (err) => {
-      if (this.isUnmounting) return;
-      console.error("[WS Client] Error:", err);
+      if (this.destroyed) return;
+      console.error("[WS] Error:", err);
       this.config.onError?.(err);
     };
 
     ws.onclose = (ev) => {
-      if (this.isUnmounting) return;
-      console.log("[WS Client] Disconnected, code:", ev.code);
+      if (this.destroyed) return;
+      console.log("[WS] Disconnected, code:", ev.code);
       this.ws = null;
       this.config.onDisconnect?.();
-      // Reconnect on any unexpected close (1005, 1006, network drop)
       this.scheduleReconnect();
     };
-  }
-
-  private cleanClose(ws: WebSocket) {
-    ws.onopen = null;
-    ws.onmessage = null;
-    ws.onerror = null;
-    ws.onclose = null;
-    ws.close();
   }
 
   private handleMessage(msg: WsMessage) {
@@ -179,67 +176,59 @@ export class WsClient {
         this.config.onCandleOpen?.(msg);
         break;
       case "ok":
-        console.log("[WS Client] Subscribed:", msg.action, msg.symbol, msg.market, msg.tf, msg.compression);
+        console.log("[WS] Subscribed:", msg.action, msg.symbol, msg.market, msg.tf, msg.compression);
         break;
       case "error":
-        console.error("[WS Client] Server error:", msg.error);
+        console.error("[WS] Server error:", msg.error);
         break;
     }
   }
 
   subscribe(symbol: string, market: string, tf: string, compression: number) {
-    const exists = this.subscriptions.some(
-      s => s.symbol === symbol && s.market === market && s.tf === tf && s.compression === compression
-    );
-    if (!exists) {
-      this.subscriptions.push({ symbol, market, tf, compression });
-    }
-    this.sendSubscribe({ symbol, market, tf, compression });
-  }
+    const sub = { symbol, market, tf, compression };
+    this.activeSub = sub;
 
-  unsubscribe(symbol: string, market: string, tf: string, compression: number) {
-    this.subscriptions = this.subscriptions.filter(
-      s => !(s.symbol === symbol && s.market === market && s.tf === tf && s.compression === compression)
-    );
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ action: "unsubscribe", symbol, market, tf, compression }));
+      this.sendSubscribe(sub);
+    } else {
+      // Buffer — will be sent on onopen
+      this.pendingSub = sub;
     }
   }
 
   private sendSubscribe(sub: { symbol: string; market: string; tf: string; compression: number }) {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ action: "subscribe", ...sub }));
+      const msg = JSON.stringify({ action: "subscribe", ...sub });
+      console.debug("[WS] >>>", msg);
+      this.ws.send(msg);
     }
   }
 
   private scheduleReconnect() {
+    if (this.destroyed) return;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
-      if (this.isUnmounting) return;
-      console.log(`[WS Client] Reconnecting in ${this.reconnectDelay}ms...`);
+      if (this.destroyed) return;
+      console.log(`[WS] Reconnecting in ${this.reconnectDelay}ms...`);
       this.connect();
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
     }, this.reconnectDelay);
   }
 
-  disconnect() {
-    this.isUnmounting = true;
+  destroy() {
+    this.destroyed = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
     if (this.ws) {
-      if (this.ws.readyState === WebSocket.CONNECTING) {
-        // Socket still connecting — clean close without triggering handlers
-        this.cleanClose(this.ws);
-      } else {
-        this.ws.onopen = null;
-        this.ws.onmessage = null;
-        this.ws.onerror = null;
-        this.ws.onclose = null;
-        this.ws.close();
-      }
+      const ws = this.ws;
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
       this.ws = null;
+      ws.close();
     }
   }
 

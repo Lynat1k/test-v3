@@ -861,86 +861,88 @@ export default function App() {
     });
   };
 
-  // Backend WebSocket Hub connection for Chart 0
+  // WebSocket connection — created ONCE, destroyed on unmount
   useEffect(() => {
     if (!isTickingAll) {
       setConnectionStatus("stale");
       return;
     }
 
+    const apiBase = (import.meta as any).env?.VITE_API_BASE || "";
+    const wsUrl = apiBase.replace(/^http/, "ws") + "/ws";
+
+    const client = new WsClient({
+      url: wsUrl,
+      onConnect: () => setConnectionStatus("connected"),
+      onDisconnect: () => setConnectionStatus("stale"),
+      onCandleUpdate: (_msg, candle) => {
+        incomingCandleBufferRef0.current = candle;
+      },
+      onCandleClose: (_msg, candle) => {
+        incomingCandleBufferRef0.current = candle;
+      },
+    });
+
+    client.connect();
+    wsClientRef0.current = client;
+
+    return () => {
+      client.destroy();
+      wsClientRef0.current = null;
+    };
+  }, [isTickingAll]);
+
+  // Chart 0 subscription — updates when params change, does NOT recreate socket
+  useEffect(() => {
+    const client = wsClientRef0.current;
+    if (!client) return;
     const isFutures = marketType0 === "FUTURES";
     const isBtc = activePair0.symbol.toUpperCase().includes("BTC");
     const baseCompression = isBtc ? (isFutures ? 25 : 500) : 25;
     const compression = baseCompression * compressionMultiplier0;
     const market = isFutures ? "futures" : "spot";
+    client.subscribe(activePair0.symbol, market, interval0, compression);
+  }, [activePair0.symbol, marketType0, interval0, compressionMultiplier0]);
+
+  // Chart 1 WebSocket connection — created ONCE
+  useEffect(() => {
+    if (!isTickingAll) return;
 
     const apiBase = (import.meta as any).env?.VITE_API_BASE || "";
     const wsUrl = apiBase.replace(/^http/, "ws") + "/ws";
 
     const client = new WsClient({
       url: wsUrl,
-      onConnect: () => {
-        if (activeChartIndex === 0) setConnectionStatus("connected");
-      },
-      onDisconnect: () => {
-        if (activeChartIndex === 0) setConnectionStatus("stale");
-      },
+      onConnect: () => setConnectionStatus("connected"),
+      onDisconnect: () => setConnectionStatus("stale"),
       onCandleUpdate: (_msg, candle) => {
-        incomingCandleBufferRef0.current = candle;
+        incomingCandleBufferRef1.current = candle;
       },
       onCandleClose: (_msg, candle) => {
-        incomingCandleBufferRef0.current = candle;
+        incomingCandleBufferRef1.current = candle;
       },
     });
 
     client.connect();
-    client.subscribe(activePair0.symbol, market, interval0, compression);
-    wsClientRef0.current = client;
+    wsClientRef1.current = client;
 
     return () => {
-      client.disconnect();
-      wsClientRef0.current = null;
+      client.destroy();
+      wsClientRef1.current = null;
     };
-  }, [isTickingAll, activePair0.symbol, marketType0, interval0, compressionMultiplier0, activeChartIndex]);
+  }, [isTickingAll]);
 
-  // Backend WebSocket Hub connection for Chart 1
+  // Chart 1 subscription
   useEffect(() => {
-    if (!isTickingAll) return;
-
+    const client = wsClientRef1.current;
+    if (!client) return;
     const isFutures = marketType1 === "FUTURES";
     const isBtc = activePair1.symbol.toUpperCase().includes("BTC");
     const baseCompression = isBtc ? (isFutures ? 25 : 500) : 25;
     const compression = baseCompression * compressionMultiplier1;
     const market = isFutures ? "futures" : "spot";
-
-    const apiBase = (import.meta as any).env?.VITE_API_BASE || "";
-    const wsUrl = apiBase.replace(/^http/, "ws") + "/ws";
-
-    const client = new WsClient({
-      url: wsUrl,
-      onConnect: () => {
-        if (activeChartIndex === 1) setConnectionStatus("connected");
-      },
-      onDisconnect: () => {
-        if (activeChartIndex === 1) setConnectionStatus("stale");
-      },
-      onCandleUpdate: (_msg, candle) => {
-        incomingCandleBufferRef1.current = candle;
-      },
-      onCandleClose: (_msg, candle) => {
-        incomingCandleBufferRef1.current = candle;
-      },
-    });
-
-    client.connect();
     client.subscribe(activePair1.symbol, market, interval1, compression);
-    wsClientRef1.current = client;
-
-    return () => {
-      client.disconnect();
-      wsClientRef1.current = null;
-    };
-  }, [isTickingAll, activePair1.symbol, marketType1, interval1, compressionMultiplier1, activeChartIndex]);
+  }, [activePair1.symbol, marketType1, interval1, compressionMultiplier1]);
 
   // WS Candle Buffer Flush (200ms interval)
   useEffect(() => {
@@ -1487,7 +1489,7 @@ export default function App() {
                   : "bg-slate-950/60 border-white/5 text-slate-300 hover:text-slate-100 liquid-glass-button"
               }`}
             >
-              {[1, 2, 3, 4, 5, 6].map((multiplier) => {
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((multiplier) => {
                 const limits = getActiveGroupLimits();
                 const isLocked = multiplier > limits.compressionLevels;
                 const isBtc = activePair.symbol.toUpperCase().includes("BTC");
