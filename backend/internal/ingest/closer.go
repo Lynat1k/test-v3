@@ -13,9 +13,19 @@ import (
 // CloseFunc is called when a candle is closed, with the cells and metadata.
 type CloseFunc func(market, symbol, tf string, candleTimeUnix int64, cells []aggregate.ClusterCell)
 
+// CandleCloserConfig holds the configuration for a CandleCloser.
+type CandleCloserConfig struct {
+	Symbol      string
+	Market      string
+	Timeframe   string
+	TickSize    float64
+	Compression uint32
+}
+
 // CandleCloser periodically closes candles and flushes to ClickHouse + cache.
 type CandleCloser struct {
-	ws       *WSClient
+	cfg      CandleCloserConfig
+	agg      *aggregate.Aggregator
 	ch       *store.ClickHouse
 	rdb      *cache.RedisCache
 	interval time.Duration
@@ -23,10 +33,11 @@ type CandleCloser struct {
 }
 
 // NewCandleCloser creates a new closer.
-func NewCandleCloser(ws *WSClient, ch *store.ClickHouse, rdb *cache.RedisCache, tf string) *CandleCloser {
-	secs := aggregate.TfSeconds[tf]
+func NewCandleCloser(cfg CandleCloserConfig, agg *aggregate.Aggregator, ch *store.ClickHouse, rdb *cache.RedisCache) *CandleCloser {
+	secs := aggregate.TfSeconds[cfg.Timeframe]
 	return &CandleCloser{
-		ws:       ws,
+		cfg:      cfg,
+		agg:      agg,
 		ch:       ch,
 		rdb:      rdb,
 		interval: time.Duration(secs) * time.Second,
@@ -49,7 +60,7 @@ func nextCloseTime(now time.Time, tf string) time.Time {
 // Run starts the closer loop.
 func (cl *CandleCloser) Run(ctx context.Context) {
 	for {
-		next := nextCloseTime(time.Now(), cl.ws.cfg.Timeframe)
+		next := nextCloseTime(time.Now(), cl.cfg.Timeframe)
 		wait := time.Until(next)
 		if wait < 0 {
 			wait = 0
@@ -64,10 +75,10 @@ func (cl *CandleCloser) Run(ctx context.Context) {
 		time.Sleep(200 * time.Millisecond)
 
 		candleTimeUnix := next.Unix()
-		cacheKey := aggregate.RedisCacheKey(cl.ws.cfg.Market, cl.ws.cfg.Symbol, cl.ws.cfg.Timeframe)
-		liveKey := aggregate.RedisAggKey(cl.ws.cfg.Market, cl.ws.cfg.Symbol, cl.ws.cfg.Timeframe, candleTimeUnix)
+		cacheKey := aggregate.RedisCacheKey(cl.cfg.Market, cl.cfg.Symbol, cl.cfg.Timeframe)
+		liveKey := aggregate.RedisAggKey(cl.cfg.Market, cl.cfg.Symbol, cl.cfg.Timeframe, candleTimeUnix)
 
-		cells := cl.ws.agg.Flush()
+		cells := cl.agg.Flush()
 		if len(cells) == 0 {
 			continue
 		}
@@ -87,8 +98,8 @@ func (cl *CandleCloser) Run(ctx context.Context) {
 		rows := make([]store.ClusterRow, len(cells))
 		for i, cell := range cells {
 			rows[i] = store.ClusterRow{
-				Symbol:     cl.ws.cfg.Symbol,
-				Timeframe:  cl.ws.cfg.Timeframe,
+				Symbol:     cl.cfg.Symbol,
+				Timeframe:  cl.cfg.Timeframe,
 				CandleTime: candleTimeUnix,
 				Price:      cell.Price,
 				Bid:        cell.Bid,
@@ -96,7 +107,7 @@ func (cl *CandleCloser) Run(ctx context.Context) {
 			}
 		}
 
-		if err := cl.ch.BatchInsert(cl.ws.cfg.Market, rows); err != nil {
+		if err := cl.ch.BatchInsert(cl.cfg.Market, rows); err != nil {
 			log.Printf("[closer] batch insert error: %v", err)
 			continue
 		}
@@ -117,7 +128,7 @@ func (cl *CandleCloser) Run(ctx context.Context) {
 			if candle.Open == 0 {
 				candle.Open = cell.Price
 			}
-			candle.Close = cell.Price + float64(cl.ws.cfg.Compression)*cl.ws.cfg.TickSize
+			candle.Close = cell.Price + float64(cl.cfg.Compression)*cl.cfg.TickSize
 		}
 
 		if err := cl.rdb.SetLastCandle(ctx, cacheKey, candle); err != nil {
@@ -130,10 +141,10 @@ func (cl *CandleCloser) Run(ctx context.Context) {
 
 		// Notify WS hub of candle close
 		if cl.onClose != nil {
-			go cl.onClose(cl.ws.cfg.Market, cl.ws.cfg.Symbol, cl.ws.cfg.Timeframe, candleTimeUnix, cells)
+			go cl.onClose(cl.cfg.Market, cl.cfg.Symbol, cl.cfg.Timeframe, candleTimeUnix, cells)
 		}
 
 		log.Printf("[closer] closed candle %s %s %s at %d, %d cells",
-			cl.ws.cfg.Market, cl.ws.cfg.Symbol, cl.ws.cfg.Timeframe, candleTimeUnix, len(cells))
+			cl.cfg.Market, cl.cfg.Symbol, cl.cfg.Timeframe, candleTimeUnix, len(cells))
 	}
 }

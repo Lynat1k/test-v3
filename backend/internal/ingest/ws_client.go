@@ -17,32 +17,51 @@ import (
 )
 
 // WSConfig holds parameters for a WS client instance.
+// One WSClient per unique (symbol, market) pair, feeding all timeframes.
 type WSConfig struct {
 	Symbol      string
 	Market      string // "futures" or "spot"
 	TickSize    float64
 	Compression uint32
-	Timeframe   string
 	RedisKeyFn  func(tf string, candleTimeUnix int64) string
 }
 
-// WSClient manages a single Binance WS trades connection.
+// TFAggregator holds the aggregator and metadata for a single timeframe.
+type TFAggregator struct {
+	Timeframe string
+	Agg       *aggregate.Aggregator
+}
+
+// WSClient manages a single Binance WS trades connection for one (symbol, market).
+// It feeds all timeframe aggregators from the same trade stream.
 type WSClient struct {
 	cfg     WSConfig
-	agg     *aggregate.Aggregator
+	aggs    []TFAggregator
 	gapFill *GapFiller
 	backoff time.Duration
 	mu      sync.Mutex
 }
 
-// NewWSClient creates a new WS client.
-func NewWSClient(cfg WSConfig) *WSClient {
+// NewWSClient creates a new WS client with aggregators for all timeframes.
+func NewWSClient(cfg WSConfig, timeframes []string) *WSClient {
+	aggs := make([]TFAggregator, len(timeframes))
+	for i, tf := range timeframes {
+		aggs[i] = TFAggregator{
+			Timeframe: tf,
+			Agg:       aggregate.NewAggregator(cfg.Symbol, cfg.Market, tf, cfg.TickSize, cfg.Compression),
+		}
+	}
 	return &WSClient{
 		cfg:     cfg,
-		agg:     aggregate.NewAggregator(cfg.Symbol, cfg.Market, cfg.Timeframe, cfg.TickSize, cfg.Compression),
+		aggs:    aggs,
 		gapFill: NewGapFiller(cfg.Symbol, cfg.Market),
 		backoff: time.Second,
 	}
+}
+
+// Aggregators returns the list of timeframe aggregators.
+func (c *WSClient) Aggregators() []TFAggregator {
+	return c.aggs
 }
 
 // wsURL returns the WebSocket URL for the Binance trade stream.
@@ -142,33 +161,38 @@ func (c *WSClient) connect(ctx context.Context, rdb *cache.RedisCache) error {
 			continue
 		}
 
-		gapStart, gapEnd, hasGap := c.agg.ProcessTrade(trade)
+		// Process trade through ALL timeframe aggregators
+		for i := range c.aggs {
+			tfAgg := &c.aggs[i]
 
-		if hasGap {
-			log.Printf("[%s/%s] GAP DETECTED: %d-%d", c.cfg.Market, c.cfg.Symbol, gapStart, gapEnd)
-			gapTrades, err := c.gapFill.FillGap(ctx, gapStart, gapEnd)
-			if err != nil {
-				log.Printf("[%s/%s] gap-fill error: %v", c.cfg.Market, c.cfg.Symbol, err)
-			} else {
-				log.Printf("[%s/%s] gap-filled %d trades", c.cfg.Market, c.cfg.Symbol, len(gapTrades))
-				for _, gt := range gapTrades {
-					c.agg.ProcessTrade(gt)
+			gapStart, gapEnd, hasGap := tfAgg.Agg.ProcessTrade(trade)
+
+			if hasGap {
+				log.Printf("[%s/%s %s] GAP DETECTED: %d-%d", c.cfg.Market, c.cfg.Symbol, tfAgg.Timeframe, gapStart, gapEnd)
+				gapTrades, err := c.gapFill.FillGap(ctx, gapStart, gapEnd)
+				if err != nil {
+					log.Printf("[%s/%s %s] gap-fill error: %v", c.cfg.Market, c.cfg.Symbol, tfAgg.Timeframe, err)
+				} else {
+					log.Printf("[%s/%s %s] gap-filled %d trades", c.cfg.Market, c.cfg.Symbol, tfAgg.Timeframe, len(gapTrades))
+					for _, gt := range gapTrades {
+						tfAgg.Agg.ProcessTrade(gt)
+					}
 				}
 			}
-		}
 
-		candleTimeUnix := aggregate.CandleTimeUnix(trade.TradeTimeMs, c.cfg.Timeframe)
-		if c.cfg.RedisKeyFn != nil && rdb != nil {
-			key := c.cfg.RedisKeyFn(c.cfg.Timeframe, candleTimeUnix)
-			bin := aggregate.BinPriceLow(trade.Price, c.cfg.TickSize, c.cfg.Compression)
-			var bidDelta, askDelta float64
-			if trade.IsBuyerMaker {
-				bidDelta = trade.Qty
-			} else {
-				askDelta = trade.Qty
-			}
-			if err := rdb.IncrCell(ctx, key, bin, bidDelta, askDelta); err != nil {
-				log.Printf("[%s/%s] redis incr error: %v", c.cfg.Market, c.cfg.Symbol, err)
+			candleTimeUnix := aggregate.CandleTimeUnix(trade.TradeTimeMs, tfAgg.Timeframe)
+			if c.cfg.RedisKeyFn != nil && rdb != nil {
+				key := c.cfg.RedisKeyFn(tfAgg.Timeframe, candleTimeUnix)
+				bin := aggregate.BinPriceLow(trade.Price, c.cfg.TickSize, c.cfg.Compression)
+				var bidDelta, askDelta float64
+				if trade.IsBuyerMaker {
+					bidDelta = trade.Qty
+				} else {
+					askDelta = trade.Qty
+				}
+				if err := rdb.IncrCell(ctx, key, bin, bidDelta, askDelta); err != nil {
+					log.Printf("[%s/%s %s] redis incr error: %v", c.cfg.Market, c.cfg.Symbol, tfAgg.Timeframe, err)
+				}
 			}
 		}
 	}

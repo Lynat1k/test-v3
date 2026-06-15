@@ -168,23 +168,32 @@ func runServer() {
 	go hub.Run(ctx)
 
 	for _, td := range tickers {
-		for _, tf := range td.tfs {
-			tfCopy := tf
-			tdCopy := td
-			cfg := ingest.WSConfig{
+		tfs := td.tfs
+		tdCopy := td
+		cfg := ingest.WSConfig{
+			Symbol:   tdCopy.symbol,
+			Market:   tdCopy.market,
+			TickSize: tdCopy.tick,
+			Compression: tdCopy.comp,
+			RedisKeyFn: func(tf string, ct int64) string {
+				return aggregate.RedisAggKey(tdCopy.market, tdCopy.symbol, tf, ct)
+			},
+		}
+		wsClient := ingest.NewWSClient(cfg, tfs)
+		go wsClient.Run(ctx, rdb)
+
+		// Create one CandleCloser per timeframe, sharing the same WSClient aggregators
+		for _, tfAgg := range wsClient.Aggregators() {
+			tfCopy := tfAgg.Timeframe
+			aggCopy := tfAgg.Agg
+			closerCfg := ingest.CandleCloserConfig{
 				Symbol:      tdCopy.symbol,
 				Market:      tdCopy.market,
+				Timeframe:   tfCopy,
 				TickSize:    tdCopy.tick,
 				Compression: tdCopy.comp,
-				Timeframe:   tfCopy,
-				RedisKeyFn: func(tf string, ct int64) string {
-					return aggregate.RedisAggKey(tdCopy.market, tdCopy.symbol, tf, ct)
-				},
 			}
-			ws := ingest.NewWSClient(cfg)
-			go ws.Run(ctx, rdb)
-
-			closer := ingest.NewCandleCloser(ws, ch, rdb, tfCopy)
+			closer := ingest.NewCandleCloser(closerCfg, aggCopy, ch, rdb)
 			closer.SetOnClose(func(market, symbol, tf string, candleTimeUnix int64, cells []aggregate.ClusterCell) {
 				hub.NotifyCandleClose(market, symbol, tf, candleTimeUnix, cells)
 			})
