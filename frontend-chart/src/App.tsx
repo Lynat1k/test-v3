@@ -726,6 +726,7 @@ export default function App() {
       if (!active) return;
       const maxCandles = getMaxCandlesForInterval(interval0);
       setCandles0(candles.slice(-maxCandles));
+      setLoadId0(v => v + 1);
 
       if (candles.length > 0) {
         const lastCandle = candles[candles.length - 1];
@@ -777,6 +778,7 @@ export default function App() {
       if (!active) return;
       const maxCandles = getMaxCandlesForInterval(interval1);
       setCandles1(candles.slice(-maxCandles));
+      setLoadId1(v => v + 1);
 
       if (candles.length > 0) {
         const lastCandle = candles[candles.length - 1];
@@ -810,6 +812,8 @@ export default function App() {
 
   const [isLoadingMore0, setIsLoadingMore0] = useState<boolean>(false);
   const [isLoadingMore1, setIsLoadingMore1] = useState<boolean>(false);
+  const [loadId0, setLoadId0] = useState<number>(0);
+  const [loadId1, setLoadId1] = useState<number>(0);
 
   const handleLoadMore0 = (oldestCandleTime: number) => {
     if (isLoadingMore0) return;
@@ -1642,6 +1646,7 @@ export default function App() {
                       workspacesCount={getActiveGroupLimits().workspacesCount}
                       onLoadMore={handleLoadMore0}
                       isLoadingMore={isLoadingMore0}
+                      loadId={loadId0}
                     />
                 </div>
 
@@ -1720,6 +1725,7 @@ export default function App() {
                       workspacesCount={getActiveGroupLimits().workspacesCount}
                       onLoadMore={handleLoadMore1}
                       isLoadingMore={isLoadingMore1}
+                      loadId={loadId1}
                     />
                   </div>
                 )}

@@ -30,6 +30,7 @@ interface ClusterChartProps {
   workspacesCount?: number;
   onLoadMore?: (oldestCandleTime: number) => void;
   isLoadingMore?: boolean;
+  loadId?: number;
 }
 
 export default function ClusterChart({
@@ -58,7 +59,8 @@ export default function ClusterChart({
   onWorkspaceLayoutChange,
   workspacesCount = 1,
   onLoadMore,
-  isLoadingMore = false
+  isLoadingMore = false,
+  loadId = 0
 }: ClusterChartProps) {
   
   const isLight = theme === "light";
@@ -559,7 +561,7 @@ export default function ClusterChart({
       setVisibleScrollLeft(finalScrollLeft);
       setVisibleClientWidth(clientWidth);
     }
-  }, [activePair.symbol, candles.length, visibleClientWidth, priceRange, basePriceCenter]);
+  }, [activePair.symbol, candles.length, loadId, visibleClientWidth, priceRange, basePriceCenter]);
 
   // Adjust canvas zoom
   const handleZoom = (factor: number) => {
