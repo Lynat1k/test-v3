@@ -330,75 +330,6 @@ func (h *Hub) broadcastSub(ctx context.Context, key string) {
 	}
 }
 
-// BroadcastClose sends a close message and triggers an open message for a new candle.
-// Called by CandleCloser when a candle is closed.
-func (h *Hub) BroadcastClose(market, symbol, tf string, compression uint32, candle aggregate.ClusterCandle) {
-	key := subKey(market, symbol, tf, compression)
-
-	tc, ok := h.Validator.GetConfig(symbol, market)
-	if !ok {
-		return
-	}
-	if compression == 0 {
-		compression = tc.BaseCompression
-	}
-
-	// Close message
-	closeMsg := SubMessage{
-		Type:   "close",
-		Symbol: symbol,
-		Market: market,
-		TF:     tf,
-		Comp:   compression,
-		Candle: &candle,
-	}
-	closeData, err := json.Marshal(closeMsg)
-	if err != nil {
-		return
-	}
-
-	h.mu.RLock()
-	set, ok := h.subs[key]
-	if !ok {
-		h.mu.RUnlock()
-		return
-	}
-	clients := make([]*Client, 0, len(set))
-	for c := range set {
-		clients = append(clients, c)
-	}
-	h.mu.RUnlock()
-
-	for _, c := range clients {
-		select {
-		case c.send <- closeData:
-		default:
-			go c.Close()
-		}
-	}
-
-	// Open message (new candle)
-	openMsg := SubMessage{
-		Type:       "open",
-		Symbol:     symbol,
-		Market:     market,
-		TF:         tf,
-		Comp:       compression,
-		CandleTime: candleTimeNow(tf),
-	}
-	openData, err := json.Marshal(openMsg)
-	if err != nil {
-		return
-	}
-	for _, c := range clients {
-		select {
-		case c.send <- openData:
-		default:
-			go c.Close()
-		}
-	}
-}
-
 func candleTimeNow(tf string) int64 {
 	secs := aggregate.TfSeconds[tf]
 	now := time.Now().Unix()
@@ -411,20 +342,35 @@ func round1(v float64) float64 {
 
 // NotifyCandleClose sends close/open to all compression levels for a subscription.
 func (h *Hub) NotifyCandleClose(market, symbol, tf string, candleTimeUnix int64, cells []aggregate.ClusterCell) {
+	// Collect unique (compression, client) pairs to avoid duplicates.
+	type compClients struct {
+		compression uint32
+		clients     []*Client
+	}
 	h.mu.RLock()
 	seen := make(map[uint32]bool)
+	var groups []compClients
 	for key := range h.subs {
 		m, s, t, c := parseSubKey(key)
 		if m == market && s == symbol && t == tf && !seen[c] {
 			seen[c] = true
-			go h.BroadcastCloseSorted(market, symbol, tf, c, candleTimeUnix, cells)
+			set := h.subs[key]
+			clients := make([]*Client, 0, len(set))
+			for cl := range set {
+				clients = append(clients, cl)
+			}
+			groups = append(groups, compClients{compression: c, clients: clients})
 		}
 	}
 	h.mu.RUnlock()
+
+	for _, g := range groups {
+		go h.sendCloseOpen(market, symbol, tf, g.compression, candleTimeUnix, cells, g.clients)
+	}
 }
 
-// BroadcastCloseSorted sends close for a given candle time and cells.
-func (h *Hub) BroadcastCloseSorted(market, symbol, tf string, compression uint32, candleTimeUnix int64, cells []aggregate.ClusterCell) {
+// sendCloseOpen builds close+open messages and sends to the given client list.
+func (h *Hub) sendCloseOpen(market, symbol, tf string, compression uint32, candleTimeUnix int64, cells []aggregate.ClusterCell, clients []*Client) {
 	tc, ok := h.Validator.GetConfig(symbol, market)
 	if !ok {
 		return
@@ -433,16 +379,47 @@ func (h *Hub) BroadcastCloseSorted(market, symbol, tf string, compression uint32
 		compression = tc.BaseCompression
 	}
 
-	// If higher compression, merge
 	if compression > tc.BaseCompression {
 		groupSize := compression / tc.BaseCompression
 		cells = aggregate.MergeCells(cells, groupSize, tc.TickSize, tc.BaseCompression)
 	}
 
-	candle := aggregate.ClusterCandle{
-		Time:  candleTimeUnix,
-		Cells: cells,
+	candle := buildCandle(candleTimeUnix, cells, compression, tc)
+
+	closeData, err := json.Marshal(SubMessage{
+		Type: "close", Symbol: symbol, Market: market, TF: tf,
+		Comp: compression, Candle: &candle,
+	})
+	if err != nil {
+		return
 	}
+
+	openData, err := json.Marshal(SubMessage{
+		Type: "open", Symbol: symbol, Market: market, TF: tf,
+		Comp: compression, CandleTime: candleTimeNow(tf),
+	})
+	if err != nil {
+		return
+	}
+
+	for _, c := range clients {
+		select {
+		case c.send <- closeData:
+		default:
+			go c.Close()
+		}
+	}
+	for _, c := range clients {
+		select {
+		case c.send <- openData:
+		default:
+			go c.Close()
+		}
+	}
+}
+
+func buildCandle(candleTimeUnix int64, cells []aggregate.ClusterCell, compression uint32, tc aggregate.TickerConfig) aggregate.ClusterCandle {
+	candle := aggregate.ClusterCandle{Time: candleTimeUnix, Cells: cells}
 	for _, cell := range cells {
 		candle.Volume += cell.Bid + cell.Ask
 		candle.Delta += cell.Ask - cell.Bid
@@ -459,6 +436,5 @@ func (h *Hub) BroadcastCloseSorted(market, symbol, tf string, compression uint32
 	}
 	candle.Volume = round1(candle.Volume)
 	candle.Delta = round1(candle.Delta)
-
-	h.BroadcastClose(market, symbol, tf, compression, candle)
+	return candle
 }

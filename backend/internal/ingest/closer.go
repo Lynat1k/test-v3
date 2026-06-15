@@ -72,6 +72,18 @@ func (cl *CandleCloser) Run(ctx context.Context) {
 			continue
 		}
 
+		// Filter out empty cells (price=0, bid=0, ask=0)
+		filtered := cells[:0]
+		for _, cell := range cells {
+			if cell.Price != 0 || cell.Bid != 0 || cell.Ask != 0 {
+				filtered = append(filtered, cell)
+			}
+		}
+		cells = filtered
+		if len(cells) == 0 {
+			continue
+		}
+
 		rows := make([]store.ClusterRow, len(cells))
 		for i, cell := range cells {
 			rows[i] = store.ClusterRow{
