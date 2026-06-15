@@ -875,23 +875,16 @@ export default function App() {
       url: wsUrl,
       onConnect: () => setConnectionStatus("connected"),
       onDisconnect: () => setConnectionStatus("stale"),
-      onCandleUpdate: (_msg, candle) => {
-        incomingCandleBufferRef0.current = candle;
-      },
-      onCandleClose: (_msg, candle) => {
-        incomingCandleBufferRef0.current = candle;
-      },
     });
 
     wsClientRef0.current = client;
 
     return () => {
-      // Do NOT destroy — singleton persists. Just clear ref.
       wsClientRef0.current = null;
     };
   }, [isTickingAll]);
 
-  // Chart 0 subscription
+  // Chart 0 subscription with per-subscription callbacks
   useEffect(() => {
     const client = wsClientRef0.current;
     if (!client) return;
@@ -900,7 +893,10 @@ export default function App() {
     const baseCompression = isBtc ? (isFutures ? 25 : 500) : 25;
     const compression = baseCompression * compressionMultiplier0;
     const market = isFutures ? "futures" : "spot";
-    client.subscribe(activePair0.symbol, market, interval0, compression);
+    client.subscribe(activePair0.symbol, market, interval0, compression, {
+      onUpdate: (_msg, candle) => { incomingCandleBufferRef0.current = candle; },
+      onClose: (_msg, candle) => { incomingCandleBufferRef0.current = candle; },
+    });
   }, [activePair0.symbol, marketType0, interval0, compressionMultiplier0]);
 
   // Chart 1 WebSocket connection — singleton
@@ -914,12 +910,6 @@ export default function App() {
       url: wsUrl,
       onConnect: () => setConnectionStatus("connected"),
       onDisconnect: () => setConnectionStatus("stale"),
-      onCandleUpdate: (_msg, candle) => {
-        incomingCandleBufferRef1.current = candle;
-      },
-      onCandleClose: (_msg, candle) => {
-        incomingCandleBufferRef1.current = candle;
-      },
     });
 
     wsClientRef1.current = client;
@@ -929,7 +919,7 @@ export default function App() {
     };
   }, [isTickingAll]);
 
-  // Chart 1 subscription
+  // Chart 1 subscription with per-subscription callbacks
   useEffect(() => {
     const client = wsClientRef1.current;
     if (!client) return;
@@ -938,7 +928,10 @@ export default function App() {
     const baseCompression = isBtc ? (isFutures ? 25 : 500) : 25;
     const compression = baseCompression * compressionMultiplier1;
     const market = isFutures ? "futures" : "spot";
-    client.subscribe(activePair1.symbol, market, interval1, compression);
+    client.subscribe(activePair1.symbol, market, interval1, compression, {
+      onUpdate: (_msg, candle) => { incomingCandleBufferRef1.current = candle; },
+      onClose: (_msg, candle) => { incomingCandleBufferRef1.current = candle; },
+    });
   }, [activePair1.symbol, marketType1, interval1, compressionMultiplier1]);
 
   // WS Candle Buffer Flush (200ms interval)

@@ -85,21 +85,22 @@ function mapBackendCandle(bc: BackendCandle): ClusterCandle {
 
 export interface WsClientConfig {
   url: string;
-  onCandleUpdate?: (msg: WsMessage, candle: ClusterCandle) => void;
-  onCandleClose?: (msg: WsMessage, candle: ClusterCandle) => void;
-  onCandleOpen?: (msg: WsMessage) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
   onError?: (err: Event) => void;
 }
 
-type SubKey = string; // "symbol:market:tf:compression"
+type SubKey = string;
+type SubCallbacks = {
+  onUpdate?: (msg: WsMessage, candle: ClusterCandle) => void;
+  onClose?: (msg: WsMessage, candle: ClusterCandle) => void;
+  onOpen?: (msg: WsMessage) => void;
+};
 
-function subKey(s: { symbol: string; market: string; tf: string; compression: number }): SubKey {
+function makeSubKey(s: { symbol: string; market: string; tf: string; compression: number }): SubKey {
   return `${s.symbol}:${s.market}:${s.tf}:${s.compression}`;
 }
 
-// --- Singleton per URL ---
 const singletons = new Map<string, WsClient>();
 
 export function getOrCreateWsClient(url: string, config: WsClientConfig): WsClient {
@@ -108,9 +109,8 @@ export function getOrCreateWsClient(url: string, config: WsClientConfig): WsClie
     client = new WsClient(config);
     singletons.set(url, client);
     client.connect();
-  } else {
-    client.updateConfig(config);
   }
+  client.updateConfig(config);
   return client;
 }
 
@@ -129,8 +129,8 @@ export class WsClient {
   private reconnectDelay = 1000;
   private maxReconnectDelay = 10000;
   private destroyed = false;
-  // Multiple active subscriptions keyed by "symbol:market:tf:compression"
   private activeSubs = new Map<SubKey, { symbol: string; market: string; tf: string; compression: number }>();
+  private subCallbacks = new Map<SubKey, SubCallbacks>();
 
   constructor(config: WsClientConfig) {
     this.config = config;
@@ -154,7 +154,6 @@ export class WsClient {
       console.log("[WS] Connected to", this.config.url);
       this.reconnectDelay = 1000;
       this.config.onConnect?.();
-      // Re-send ALL active subscriptions
       for (const sub of this.activeSubs.values()) {
         this.sendSubscribe(sub);
       }
@@ -168,7 +167,7 @@ export class WsClient {
         try {
           const msg: WsMessage = JSON.parse(line);
           if (msg.type === "update" || msg.type === "close") {
-            console.debug("[WS]", msg.type, msg.candle?.time);
+            console.debug("[WS] <<<", msg.type, msg.symbol, msg.market, msg.tf, msg.compression, "time:", msg.candle?.time);
           }
           this.handleMessage(msg);
         } catch (e) {
@@ -195,17 +194,24 @@ export class WsClient {
   private handleMessage(msg: WsMessage) {
     switch (msg.type) {
       case "update":
-        if (msg.candle) {
-          this.config.onCandleUpdate?.(msg, mapBackendCandle(msg.candle));
+      case "close": {
+        if (!msg.candle) break;
+        const candle = mapBackendCandle(msg.candle);
+        const key = msg.symbol && msg.market && msg.tf && msg.compression
+          ? makeSubKey({ symbol: msg.symbol, market: msg.market, tf: msg.tf, compression: msg.compression })
+          : null;
+        const cb = key ? this.subCallbacks.get(key) : null;
+        if (msg.type === "update") {
+          cb?.onUpdate?.(msg, candle);
+        } else {
+          cb?.onClose?.(msg, candle);
         }
         break;
-      case "close":
-        if (msg.candle) {
-          this.config.onCandleClose?.(msg, mapBackendCandle(msg.candle));
-        }
-        break;
+      }
       case "open":
-        this.config.onCandleOpen?.(msg);
+        for (const cb of this.subCallbacks.values()) {
+          cb.onOpen?.(msg);
+        }
         break;
       case "ok":
         console.log("[WS] Subscribed:", msg.action, msg.symbol, msg.market, msg.tf, msg.compression);
@@ -216,26 +222,23 @@ export class WsClient {
     }
   }
 
-  subscribe(symbol: string, market: string, tf: string, compression: number) {
+  subscribe(symbol: string, market: string, tf: string, compression: number, callbacks: SubCallbacks) {
     const sub = { symbol, market, tf, compression };
-    const key = subKey(sub);
+    const key = makeSubKey(sub);
     this.activeSubs.set(key, sub);
-
+    this.subCallbacks.set(key, callbacks);
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.sendSubscribe(sub);
     }
-    // If CONNECTING — onopen will re-send all activeSubs
   }
 
   unsubscribe(symbol: string, market: string, tf: string, compression: number) {
     const sub = { symbol, market, tf, compression };
-    const key = subKey(sub);
+    const key = makeSubKey(sub);
     this.activeSubs.delete(key);
-
+    this.subCallbacks.delete(key);
     if (this.ws?.readyState === WebSocket.OPEN) {
-      const msg = JSON.stringify({ action: "unsubscribe", ...sub });
-      console.debug("[WS] >>>", msg);
-      this.ws.send(msg);
+      this.ws.send(JSON.stringify({ action: "unsubscribe", ...sub }));
     }
   }
 
