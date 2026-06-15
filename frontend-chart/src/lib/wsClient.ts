@@ -146,6 +146,15 @@ export class WsClient {
       return;
     }
 
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+      try { this.ws.close(); } catch (_) {}
+      this.ws = null;
+    }
+
     const ws = new WebSocket(this.config.url);
     this.ws = ws;
 
@@ -161,18 +170,14 @@ export class WsClient {
 
     ws.onmessage = (event) => {
       if (this.destroyed) return;
-      const lines = event.data.split("\n");
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const msg: WsMessage = JSON.parse(line);
-          if (msg.type === "update" || msg.type === "close") {
-            console.debug("[WS] <<<", msg.type, msg.symbol, msg.market, msg.tf, msg.compression, "time:", msg.candle?.time);
-          }
-          this.handleMessage(msg);
-        } catch (e) {
-          console.error("[WS] Parse error:", e);
+      try {
+        const msg: WsMessage = JSON.parse(event.data);
+        if (msg.type === "update" || msg.type === "close") {
+          console.debug("[WS] <<<", msg.type, msg.symbol, msg.market, msg.tf, msg.compression, "time:", msg.candle?.time);
         }
+        this.handleMessage(msg);
+      } catch (e) {
+        console.error("[WS] Parse error:", e);
       }
     };
 
