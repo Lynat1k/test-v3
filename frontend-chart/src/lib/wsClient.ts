@@ -98,9 +98,8 @@ export class WsClient {
   private config: WsClientConfig;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = 1000;
-  private maxReconnectDelay = 30000;
-  private shouldReconnect = true;
-  private destroyed = false;
+  private maxReconnectDelay = 10000;
+  private isUnmounting = false;
   private subscriptions: Array<{ symbol: string; market: string; tf: string; compression: number }> = [];
 
   constructor(config: WsClientConfig) {
@@ -108,7 +107,7 @@ export class WsClient {
   }
 
   connect() {
-    if (this.destroyed) return;
+    if (this.isUnmounting) return;
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -117,7 +116,7 @@ export class WsClient {
     this.ws = ws;
 
     ws.onopen = () => {
-      if (this.destroyed) { ws.close(); return; }
+      if (this.isUnmounting) { this.cleanClose(ws); return; }
       console.log("[WS Client] Connected to", this.config.url);
       this.reconnectDelay = 1000;
       this.config.onConnect?.();
@@ -127,7 +126,7 @@ export class WsClient {
     };
 
     ws.onmessage = (event) => {
-      if (this.destroyed) return;
+      if (this.isUnmounting) return;
       const lines = event.data.split("\n");
       for (const line of lines) {
         if (!line.trim()) continue;
@@ -141,20 +140,27 @@ export class WsClient {
     };
 
     ws.onerror = (err) => {
-      if (this.destroyed) return;
+      if (this.isUnmounting) return;
       console.error("[WS Client] Error:", err);
       this.config.onError?.(err);
     };
 
-    ws.onclose = () => {
-      if (this.destroyed) return;
-      console.log("[WS Client] Disconnected");
-      this.config.onDisconnect?.();
+    ws.onclose = (ev) => {
+      if (this.isUnmounting) return;
+      console.log("[WS Client] Disconnected, code:", ev.code);
       this.ws = null;
-      if (this.shouldReconnect) {
-        this.scheduleReconnect();
-      }
+      this.config.onDisconnect?.();
+      // Reconnect on any unexpected close (1005, 1006, network drop)
+      this.scheduleReconnect();
     };
+  }
+
+  private cleanClose(ws: WebSocket) {
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+    ws.close();
   }
 
   private handleMessage(msg: WsMessage) {
@@ -209,6 +215,7 @@ export class WsClient {
   private scheduleReconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
+      if (this.isUnmounting) return;
       console.log(`[WS Client] Reconnecting in ${this.reconnectDelay}ms...`);
       this.connect();
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
@@ -216,21 +223,23 @@ export class WsClient {
   }
 
   disconnect() {
-    this.destroyed = true;
-    this.shouldReconnect = false;
+    this.isUnmounting = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
     if (this.ws) {
-      // Remove handlers before close to prevent onclose/onerror firing
-      const ws = this.ws;
-      ws.onopen = null;
-      ws.onmessage = null;
-      ws.onerror = null;
-      ws.onclose = null;
+      if (this.ws.readyState === WebSocket.CONNECTING) {
+        // Socket still connecting — clean close without triggering handlers
+        this.cleanClose(this.ws);
+      } else {
+        this.ws.onopen = null;
+        this.ws.onmessage = null;
+        this.ws.onerror = null;
+        this.ws.onclose = null;
+        this.ws.close();
+      }
       this.ws = null;
-      ws.close();
     }
   }
 
