@@ -93,6 +93,31 @@ export interface WsClientConfig {
   onError?: (err: Event) => void;
 }
 
+// --- Singleton per URL ---
+// Survives React 19 StrictMode double-mount. Only one WebSocket per URL.
+const singletons = new Map<string, WsClient>();
+
+export function getOrCreateWsClient(url: string, config: WsClientConfig): WsClient {
+  let client = singletons.get(url);
+  if (!client) {
+    client = new WsClient(config);
+    singletons.set(url, client);
+    client.connect();
+  } else {
+    // Update callbacks on remount (StrictMode second mount)
+    client.updateConfig(config);
+  }
+  return client;
+}
+
+export function destroyWsClient(url: string) {
+  const client = singletons.get(url);
+  if (client) {
+    client.destroy();
+    singletons.delete(url);
+  }
+}
+
 export class WsClient {
   private ws: WebSocket | null = null;
   private config: WsClientConfig;
@@ -100,10 +125,13 @@ export class WsClient {
   private reconnectDelay = 1000;
   private maxReconnectDelay = 10000;
   private destroyed = false;
-  private activeSub: { symbol: string; market: string; tf: string; compression: number } | null = null;
   private pendingSub: { symbol: string; market: string; tf: string; compression: number } | null = null;
 
   constructor(config: WsClientConfig) {
+    this.config = config;
+  }
+
+  updateConfig(config: WsClientConfig) {
     this.config = config;
   }
 
@@ -121,10 +149,8 @@ export class WsClient {
       console.log("[WS] Connected to", this.config.url);
       this.reconnectDelay = 1000;
       this.config.onConnect?.();
-      // Send pending or active subscription
-      const sub = this.pendingSub || this.activeSub;
-      if (sub) {
-        this.sendSubscribe(sub);
+      if (this.pendingSub) {
+        this.sendSubscribe(this.pendingSub);
       }
     };
 
@@ -186,12 +212,9 @@ export class WsClient {
 
   subscribe(symbol: string, market: string, tf: string, compression: number) {
     const sub = { symbol, market, tf, compression };
-    this.activeSub = sub;
-
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.sendSubscribe(sub);
     } else {
-      // Buffer — will be sent on onopen
       this.pendingSub = sub;
     }
   }

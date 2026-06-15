@@ -18,7 +18,7 @@ import { TrendingUp, TrendingDown, Layers, ChevronLeft, ChevronRight, AlertTrian
 import { motion, AnimatePresence } from "motion/react";
 
 import { AutoIcon, JapaneseIcon, FootprintIcon, ClustersIcon, CandlePreviewIcon } from "./components/icons";
-import { WsClient } from "./lib/wsClient";
+import { WsClient, getOrCreateWsClient, destroyWsClient } from "./lib/wsClient";
 import { getClusterCandles } from "./lib/api";
 import { getActiveGroupLimits as getActiveGroupLimitsFromTier } from "./lib/tierLimits";
 import { storage } from "./lib/storage";
@@ -861,7 +861,7 @@ export default function App() {
     });
   };
 
-  // WebSocket connection — created ONCE, destroyed on unmount
+  // WebSocket connection — singleton survives StrictMode double-mount
   useEffect(() => {
     if (!isTickingAll) {
       setConnectionStatus("stale");
@@ -871,7 +871,7 @@ export default function App() {
     const apiBase = (import.meta as any).env?.VITE_API_BASE || "";
     const wsUrl = apiBase.replace(/^http/, "ws") + "/ws";
 
-    const client = new WsClient({
+    const client = getOrCreateWsClient(wsUrl, {
       url: wsUrl,
       onConnect: () => setConnectionStatus("connected"),
       onDisconnect: () => setConnectionStatus("stale"),
@@ -883,16 +883,15 @@ export default function App() {
       },
     });
 
-    client.connect();
     wsClientRef0.current = client;
 
     return () => {
-      client.destroy();
+      // Do NOT destroy — singleton persists. Just clear ref.
       wsClientRef0.current = null;
     };
   }, [isTickingAll]);
 
-  // Chart 0 subscription — updates when params change, does NOT recreate socket
+  // Chart 0 subscription
   useEffect(() => {
     const client = wsClientRef0.current;
     if (!client) return;
@@ -904,14 +903,14 @@ export default function App() {
     client.subscribe(activePair0.symbol, market, interval0, compression);
   }, [activePair0.symbol, marketType0, interval0, compressionMultiplier0]);
 
-  // Chart 1 WebSocket connection — created ONCE
+  // Chart 1 WebSocket connection — singleton
   useEffect(() => {
     if (!isTickingAll) return;
 
     const apiBase = (import.meta as any).env?.VITE_API_BASE || "";
     const wsUrl = apiBase.replace(/^http/, "ws") + "/ws";
 
-    const client = new WsClient({
+    const client = getOrCreateWsClient(wsUrl, {
       url: wsUrl,
       onConnect: () => setConnectionStatus("connected"),
       onDisconnect: () => setConnectionStatus("stale"),
@@ -923,11 +922,9 @@ export default function App() {
       },
     });
 
-    client.connect();
     wsClientRef1.current = client;
 
     return () => {
-      client.destroy();
       wsClientRef1.current = null;
     };
   }, [isTickingAll]);
