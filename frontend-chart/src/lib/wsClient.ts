@@ -93,8 +93,13 @@ export interface WsClientConfig {
   onError?: (err: Event) => void;
 }
 
+type SubKey = string; // "symbol:market:tf:compression"
+
+function subKey(s: { symbol: string; market: string; tf: string; compression: number }): SubKey {
+  return `${s.symbol}:${s.market}:${s.tf}:${s.compression}`;
+}
+
 // --- Singleton per URL ---
-// Survives React 19 StrictMode double-mount. Only one WebSocket per URL.
 const singletons = new Map<string, WsClient>();
 
 export function getOrCreateWsClient(url: string, config: WsClientConfig): WsClient {
@@ -104,7 +109,6 @@ export function getOrCreateWsClient(url: string, config: WsClientConfig): WsClie
     singletons.set(url, client);
     client.connect();
   } else {
-    // Update callbacks on remount (StrictMode second mount)
     client.updateConfig(config);
   }
   return client;
@@ -125,7 +129,8 @@ export class WsClient {
   private reconnectDelay = 1000;
   private maxReconnectDelay = 10000;
   private destroyed = false;
-  private pendingSub: { symbol: string; market: string; tf: string; compression: number } | null = null;
+  // Multiple active subscriptions keyed by "symbol:market:tf:compression"
+  private activeSubs = new Map<SubKey, { symbol: string; market: string; tf: string; compression: number }>();
 
   constructor(config: WsClientConfig) {
     this.config = config;
@@ -149,8 +154,9 @@ export class WsClient {
       console.log("[WS] Connected to", this.config.url);
       this.reconnectDelay = 1000;
       this.config.onConnect?.();
-      if (this.pendingSub) {
-        this.sendSubscribe(this.pendingSub);
+      // Re-send ALL active subscriptions
+      for (const sub of this.activeSubs.values()) {
+        this.sendSubscribe(sub);
       }
     };
 
@@ -212,10 +218,24 @@ export class WsClient {
 
   subscribe(symbol: string, market: string, tf: string, compression: number) {
     const sub = { symbol, market, tf, compression };
+    const key = subKey(sub);
+    this.activeSubs.set(key, sub);
+
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.sendSubscribe(sub);
-    } else {
-      this.pendingSub = sub;
+    }
+    // If CONNECTING — onopen will re-send all activeSubs
+  }
+
+  unsubscribe(symbol: string, market: string, tf: string, compression: number) {
+    const sub = { symbol, market, tf, compression };
+    const key = subKey(sub);
+    this.activeSubs.delete(key);
+
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      const msg = JSON.stringify({ action: "unsubscribe", ...sub });
+      console.debug("[WS] >>>", msg);
+      this.ws.send(msg);
     }
   }
 
