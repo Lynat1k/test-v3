@@ -27,7 +27,10 @@
   - на /api/* и WS — общий лимит запросов с одного IP (анти-DDoS L7)
 - Заголовки безопасности: CSP, X-Frame-Options, X-Content-Type-Options,
   Referrer-Policy, Permissions-Policy.
-- CORS: разрешить ТОЛЬКО procluster.online и chart.procluster.online (не `*`).
+- **CORS**: разрешать ТОЛЬКО явный whitelist origin (scheme://host:port), не `*`.
+  Whitelist настраивается через `CORS_ALLOWED_ORIGINS` env (comma-separated).
+  По умолчанию: dev (localhost:5180/5181) + prod (procluster.online, chart.procluster.online).
+  Единый `api.IsOriginAllowed()` используется и REST corsMiddleware, и WS CheckOrigin.
 
 ---
 

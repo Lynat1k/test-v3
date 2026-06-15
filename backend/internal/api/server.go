@@ -3,19 +3,11 @@ package api
 import (
 	"log"
 	"net/http"
-	"strings"
 
 	"procluster-backend/internal/aggregate"
 	"procluster-backend/internal/cache"
 	"procluster-backend/internal/store"
 )
-
-var allowedOrigins = map[string]bool{
-	"procluster.online":        true,
-	"chart.procluster.online":  true,
-	"www.procluster.online":    true,
-	"www.chart.procluster.online": true,
-}
 
 type Server struct {
 	ch        *store.ClickHouse
@@ -45,13 +37,11 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" {
-			host := extractHost(origin)
-			if allowedOrigins[host] {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			}
+		if origin != "" && IsOriginAllowed(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
 		if r.Method == "OPTIONS" {
@@ -74,18 +64,6 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // rateLimitMiddleware is a stub for phase 14.
 func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return authMiddleware(next)
-}
-
-func extractHost(origin string) string {
-	// "https://chart.procluster.online" → "chart.procluster.online"
-	s := strings.TrimPrefix(origin, "https://")
-	s = strings.TrimPrefix(s, "http://")
-	s = strings.TrimSuffix(s, "/")
-	// Remove port if any
-	if idx := strings.Index(s, ":"); idx > 0 {
-		s = s[:idx]
-	}
-	return s
 }
 
 func jsonError(w http.ResponseWriter, status int, code, msg string) {

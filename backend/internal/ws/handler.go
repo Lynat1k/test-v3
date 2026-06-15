@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
+
+	"procluster-backend/internal/api"
 )
 
 var upgrader = websocket.Upgrader{
@@ -18,18 +20,8 @@ var upgrader = websocket.Upgrader{
 		if origin == "" {
 			return true
 		}
-		host := extractHost(origin)
-		return allowedWSHosts[host]
+		return api.IsOriginAllowed(origin)
 	},
-}
-
-var allowedWSHosts = map[string]bool{
-	"chart.procluster.online":  true,
-	"procluster.online":        true,
-	"www.chart.procluster.online": true,
-	"www.procluster.online":    true,
-	"localhost":                true,
-	"127.0.0.1":                true,
 }
 
 // Handler serves the WebSocket endpoint.
@@ -105,14 +97,4 @@ func extractIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
-}
-
-func extractHost(origin string) string {
-	s := strings.TrimPrefix(origin, "https://")
-	s = strings.TrimPrefix(s, "http://")
-	s = strings.TrimSuffix(s, "/")
-	if idx := strings.Index(s, ":"); idx > 0 {
-		s = s[:idx]
-	}
-	return s
 }

@@ -118,3 +118,4 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - **Frontend already has all interactive features**: zoom to cursor, SHIFT/CTRL wheel, Auto mode, palettes, drawing tools, workspace split — these just needed real data connected.
 - **Direct Binance WS → Backend WS hub**: Eliminates client-side aggregation, keeps all trade processing server-side. Client just receives pre-computed ClusterCandle updates.
 - **Backend candle fields**: `time` (unix seconds) maps to frontend `timestamp` (unix ms). Cells include `isPoc`, `isBuyImbalance`, `isSellImbalance` computed server-side with 300% diagonal ratio.
+- **CORS whitelist**: Full origin matching (scheme://host:port), not just host. Configurable via `CORS_ALLOWED_ORIGINS` env (comma-separated). Empty = dev+production defaults. Shared `api.IsOriginAllowed()` used by both REST corsMiddleware and WS CheckOrigin.
