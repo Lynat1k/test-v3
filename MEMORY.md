@@ -90,6 +90,7 @@ JSON на старте. Live DOM на старте (без history). Старт:
   - ✅ WS singleton (React 19 StrictMode safe), per-subscription callbacks
   - ✅ Google Fonts в <link> (CSS @import fix)
   - ⚠️ ГЛАВНЫЙ БАГ: realtime не отображается на графике. Сервер шлёт broadcast update (лог: "broadcast: key=futures:BTCUSDT:1m:125 cells=N clients=1"), НО свеча не двигается. Обрыв на клиенте при приёме/отрисовке update.
+  - 🔍 DIAGNOSTIC (2026-06-15): Код Go-хаба проверен — везде `*Client` (указатели), копий по значению нет. WritePump запущен на том же объекте, что и в subs map. Логи `[WS] broadcast -> client send <addr>` И `[WS] writePump WRITE to <addr>` появляются каждые ~200ms с совпадающими адресами. Значит проблема НЕ в Go-бэкенде — обрыв на стороне клиента (wsClient.ts парсинг, newline-delimited split, или CORS/origin).
   - ⚠️ График показывает старые свечи (loadhistory), новые за сегодня не появляются. REST отдаёт старый диапазон.
 - [ ] 7 Auth: JWT + Google OAuth (SQLite) [build]
 - [ ] 8 Тарифы + ограничения истории/индикаторов [build]
