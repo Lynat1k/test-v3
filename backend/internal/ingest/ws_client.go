@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -110,8 +110,16 @@ func (c *WSClient) connect(ctx context.Context, rdb *cache.RedisCache) error {
 		Proxy: http.ProxyFromEnvironment,
 	}
 	if proxy.Enabled() {
-		dialer.Proxy = func(_ *http.Request) (*url.URL, error) {
-			return proxy.ProxyURL(), nil
+		if proxy.WSNeedsCustomDial() {
+			// SOCKS5: use a custom dial function that routes through SOCKS5
+			socks5Dialer := proxy.WSSOCKS5Dialer()
+			dialer.NetDial = func(network, addr string) (net.Conn, error) {
+				return socks5Dialer.Dial(network, addr)
+			}
+			dialer.Proxy = nil
+		} else {
+			// HTTP proxy: gorilla supports HTTP CONNECT natively
+			dialer.Proxy = proxy.WSProxyFunc()
 		}
 	}
 
@@ -119,6 +127,13 @@ func (c *WSClient) connect(ctx context.Context, rdb *cache.RedisCache) error {
 	if err != nil {
 		return fmt.Errorf("ws dial: %w", err)
 	}
+	defer conn.Close()
+
+	return c.runConn(ctx, conn, rdb)
+}
+
+// runConn handles an established WebSocket connection (shared by all dial methods).
+func (c *WSClient) runConn(ctx context.Context, conn *websocket.Conn, rdb *cache.RedisCache) error {
 	defer conn.Close()
 
 	log.Printf("[%s/%s] WS connected", c.cfg.Market, c.cfg.Symbol)

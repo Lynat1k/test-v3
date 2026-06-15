@@ -73,7 +73,7 @@ SSH ключи+fail2ban+без пароля; Caddy rate-limit (анти-брут
 ## 9. Стек (подтверждён)
 Go (1 бинарник+горутины), ClickHouse, SQLite, Redis, Docker Compose, Caddy.
 JSON на старте. Live DOM на старте (без history). Старт: 2 символа (BTCUSDT fut + spot).
-SOCKS5 прокси для Binance (WS/REST/history): `BINANCE_PROXY=socks5://host:port` (env). Если пусто — direct.
+Прокси для Binance: `BINANCE_PROXY` env — `socks5://host:port` (golang.org/x/net/proxy) или `http://host:port` (standard Go proxy). Если пусто — direct.
 
 ## 10. Статус фаз (дополняется автоматически)
 - [x] 0 Скелет монорепо + docker-compose + перенос PROCLUSTER3 + чистка фейков [build]
