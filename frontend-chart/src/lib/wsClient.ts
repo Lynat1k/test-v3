@@ -100,6 +100,7 @@ export class WsClient {
   private reconnectDelay = 1000;
   private maxReconnectDelay = 30000;
   private shouldReconnect = true;
+  private destroyed = false;
   private subscriptions: Array<{ symbol: string; market: string; tf: string; compression: number }> = [];
 
   constructor(config: WsClientConfig) {
@@ -107,13 +108,16 @@ export class WsClient {
   }
 
   connect() {
+    if (this.destroyed) return;
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
 
-    this.ws = new WebSocket(this.config.url);
+    const ws = new WebSocket(this.config.url);
+    this.ws = ws;
 
-    this.ws.onopen = () => {
+    ws.onopen = () => {
+      if (this.destroyed) { ws.close(); return; }
       console.log("[WS Client] Connected to", this.config.url);
       this.reconnectDelay = 1000;
       this.config.onConnect?.();
@@ -122,7 +126,8 @@ export class WsClient {
       }
     };
 
-    this.ws.onmessage = (event) => {
+    ws.onmessage = (event) => {
+      if (this.destroyed) return;
       const lines = event.data.split("\n");
       for (const line of lines) {
         if (!line.trim()) continue;
@@ -135,14 +140,17 @@ export class WsClient {
       }
     };
 
-    this.ws.onerror = (err) => {
+    ws.onerror = (err) => {
+      if (this.destroyed) return;
       console.error("[WS Client] Error:", err);
       this.config.onError?.(err);
     };
 
-    this.ws.onclose = () => {
+    ws.onclose = () => {
+      if (this.destroyed) return;
       console.log("[WS Client] Disconnected");
       this.config.onDisconnect?.();
+      this.ws = null;
       if (this.shouldReconnect) {
         this.scheduleReconnect();
       }
@@ -208,14 +216,21 @@ export class WsClient {
   }
 
   disconnect() {
+    this.destroyed = true;
     this.shouldReconnect = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
     if (this.ws) {
-      this.ws.close();
+      // Remove handlers before close to prevent onclose/onerror firing
+      const ws = this.ws;
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
       this.ws = null;
+      ws.close();
     }
   }
 
