@@ -81,7 +81,7 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - [x] 3 History loader (data.binance.vision) + агрегация + округление [build] ✅ DONE
 - [x] 4 REST API: candles(last-700+догрузка), DOM live, fear&greed [build] ✅ DONE
 - [x] 5 WS-хаб на фронт (батч 100-500ms) [build] ✅ DONE
-- [ ] 6 Адаптация движка + интерактив (zoom/SHIFT/CTRL/auto/workspace) [compose]
+- [x] 6 Адаптация движка + интерактив (zoom/SHIFT/CTRL/auto/workspace) [compose] ✅ DONE
 - [ ] 7 Auth: JWT + Google OAuth (SQLite) [build]
 - [ ] 8 Тарифы + ограничения истории/индикаторов [build]
 - [ ] 9 Cluster Search (docs/03) [compose]
@@ -110,3 +110,10 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - **Subscription key encoding**: `market:symbol:tf:compression` as flat string for map key. Parse back with colon-split from the right (compression is last, has no colons in value).
 - **CandleCloser callback**: Added `SetOnClose(fn CloseFunc)` to notify WS hub on candle close. Callback runs in a goroutine to not block the closer loop.
 - **gorilla/websocket already in go.mod**: No new dependencies needed for WS hub.
+
+## 14. Уроки из адаптации движка (Phase 6)
+- **Backend WS hub protocol**: Client sends `{"action":"subscribe","symbol":"...","market":"...","tf":"...","compression":N}`, server responds with `{"type":"update","candle":{...}}` every 200ms and `{"type":"close","candle":{...}}` + `{"type":"open","candle_time":...}` on candle close. Messages may be batched with `\n` separator in a single WebSocket frame.
+- **Backend REST contract**: `GET /api/candles?symbol=&market=&tf=&compression=&before=&limit=` returns `{"ok":true,"data":{"candles":[...],"history_limited":bool}}`. The `before` param is unix seconds for scroll-back.
+- **Frontend already has all interactive features**: zoom to cursor, SHIFT/CTRL wheel, Auto mode, palettes, drawing tools, workspace split — these just needed real data connected.
+- **Direct Binance WS → Backend WS hub**: Eliminates client-side aggregation, keeps all trade processing server-side. Client just receives pre-computed ClusterCandle updates.
+- **Backend candle fields**: `time` (unix seconds) maps to frontend `timestamp` (unix ms). Cells include `isPoc`, `isBuyImbalance`, `isSellImbalance` computed server-side with 300% diagonal ratio.

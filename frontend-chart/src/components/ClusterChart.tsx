@@ -28,6 +28,8 @@ interface ClusterChartProps {
   workspaceLayout?: "1" | "2h" | "2v";
   onWorkspaceLayoutChange?: (layout: "1" | "2h" | "2v") => void;
   workspacesCount?: number;
+  onLoadMore?: (oldestCandleTime: number) => void;
+  isLoadingMore?: boolean;
 }
 
 export default function ClusterChart({
@@ -54,7 +56,9 @@ export default function ClusterChart({
   language = "EN",
   workspaceLayout,
   onWorkspaceLayoutChange,
-  workspacesCount = 1
+  workspacesCount = 1,
+  onLoadMore,
+  isLoadingMore = false
 }: ClusterChartProps) {
   
   const isLight = theme === "light";
@@ -64,6 +68,12 @@ export default function ClusterChart({
   const [drawingInProgress, setDrawingInProgress] = useState<any | null>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<number | null>(null);
   const [drawingDragState, setDrawingDragState] = useState<any | null>(null);
+
+  // FPS Counter
+  const [fps, setFps] = useState(0);
+  const frameCountRef = useRef(0);
+  const lastFpsTimeRef = useRef(performance.now());
+  const rafIdRef = useRef<number>(0);
 
   const [selectedTimezone, setSelectedTimezone] = useState<string>(() => {
     return storage.get("procluster_chart_timezone") || "local";
@@ -3065,6 +3075,49 @@ export default function ClusterChart({
     selectedDrawingId
   ]);
 
+  // FPS Counter
+  useEffect(() => {
+    if (candles.length === 0) return;
+
+    let running = true;
+    const measure = () => {
+      if (!running) return;
+      frameCountRef.current++;
+      const now = performance.now();
+      const elapsed = now - lastFpsTimeRef.current;
+      if (elapsed >= 1000) {
+        setFps(Math.round((frameCountRef.current * 1000) / elapsed));
+        frameCountRef.current = 0;
+        lastFpsTimeRef.current = now;
+      }
+      rafIdRef.current = requestAnimationFrame(measure);
+    };
+    rafIdRef.current = requestAnimationFrame(measure);
+
+    return () => {
+      running = false;
+      cancelAnimationFrame(rafIdRef.current);
+    };
+  }, [candles.length]);
+
+  // Scroll-back history loading trigger
+  useEffect(() => {
+    if (!onLoadMore || isLoadingMore || candles.length === 0) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const scrollLeft = container.scrollLeft;
+      if (scrollLeft < 200 && candles.length > 0) {
+        const oldestCandle = candles[0];
+        onLoadMore(oldestCandle.timestamp);
+      }
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [candles.length, onLoadMore, isLoadingMore]);
+
   const formatCoinsVolume = (valInCoins: number, symbol: string) => {
     const rounded = Math.round(valInCoins);
     return `${rounded.toLocaleString()} ${symbol.toUpperCase()}`;
@@ -3433,6 +3486,28 @@ export default function ClusterChart({
               />
             </>
           )}
+
+        {/* FPS Counter Overlay */}
+        {fps > 0 && (
+          <div className={`absolute top-2 left-2 z-50 px-2 py-0.5 rounded text-[10px] font-mono font-bold select-none ${
+            fps >= 55
+              ? theme === "light" ? "bg-green-100 text-green-800" : "bg-green-900/60 text-green-400"
+              : fps >= 30
+                ? theme === "light" ? "bg-yellow-100 text-yellow-800" : "bg-yellow-900/60 text-yellow-400"
+                : theme === "light" ? "bg-red-100 text-red-800" : "bg-red-900/60 text-red-400"
+          }`}>
+            {fps} FPS
+          </div>
+        )}
+
+        {/* Loading more history indicator */}
+        {isLoadingMore && (
+          <div className={`absolute top-2 left-1/2 -translate-x-1/2 z-50 px-3 py-1 rounded text-[10px] font-mono font-bold select-none ${
+            theme === "light" ? "bg-blue-100 text-blue-800" : "bg-blue-900/60 text-blue-400"
+          }`}>
+            Loading history...
+          </div>
+        )}
         </div>
 
         {/* Dynamic Vector floating Watermark Overlay */}
