@@ -8,8 +8,6 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
-
-	"procluster-backend/internal/api"
 )
 
 var upgrader = websocket.Upgrader{
@@ -17,11 +15,7 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 	EnableCompression: false,
 	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true
-		}
-		return api.IsOriginAllowed(origin)
+		return true
 	},
 }
 
@@ -71,6 +65,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) checkIPLimit(ip string) bool {
+	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
+		return true
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.connsByIP[ip] >= h.maxPerIP {
