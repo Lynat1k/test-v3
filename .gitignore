@@ -13,6 +13,8 @@ base.json
 x2.json
 PROCLUSTER3-main/
 ws_debug*.go
+ws_verify.go
+wstest.go
 
 *.exe~
 server.exe~
