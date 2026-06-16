@@ -52,22 +52,7 @@ func (c *Client) writeFrame(mt int, data []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-	n, err := c.conn.NextWriter(mt)
-	if err != nil {
-		log.Printf("[WS] writeFrame NextWriter error for %s: %v", c.conn.RemoteAddr(), err)
-		return err
-	}
-	written, wErr := n.Write(data)
-	if wErr != nil {
-		log.Printf("[WS] writeFrame Write error for %s: %v (wrote %d/%d bytes)", c.conn.RemoteAddr(), wErr, written, len(data))
-		n.Close()
-		return wErr
-	}
-	if cErr := n.Close(); cErr != nil {
-		log.Printf("[WS] writeFrame Close error for %s: %v", c.conn.RemoteAddr(), cErr)
-		return cErr
-	}
-	return nil
+	return c.conn.WriteMessage(mt, data)
 }
 
 // ReadPump pumps messages from the WebSocket connection to the hub.
@@ -99,14 +84,6 @@ func (c *Client) ReadPump() {
 // WritePump pumps messages from the hub to the WebSocket connection.
 func (c *Client) WritePump() {
 	log.Printf("[WS] writePump STARTED for %s", c.conn.RemoteAddr())
-
-	testMsg := []byte(`{"type":"hello"}`)
-	if err := c.writeFrame(websocket.TextMessage, testMsg); err != nil {
-		log.Printf("[WS] HELLO FRAME FAILED for %s: %v", c.conn.RemoteAddr(), err)
-	} else {
-		log.Printf("[WS] HELLO FRAME SENT for %s", c.conn.RemoteAddr())
-	}
-
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
