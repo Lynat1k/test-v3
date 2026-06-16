@@ -51,10 +51,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many connections from this IP", http.StatusTooManyRequests)
 		return
 	}
-	defer h.releaseIP(ip)
-
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		h.releaseIP(ip)
 		log.Printf("[WS] upgrade error: %v", err)
 		return
 	}
@@ -63,7 +62,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.hub.Register(client)
 
 	go client.WritePump()
-	go client.ReadPump()
+	go func() {
+		client.ReadPump()
+		h.releaseIP(ip)
+	}()
 }
 
 func (h *Handler) checkIPLimit(ip string) bool {

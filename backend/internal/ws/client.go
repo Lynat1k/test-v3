@@ -99,6 +99,14 @@ func (c *Client) ReadPump() {
 // WritePump pumps messages from the hub to the WebSocket connection.
 func (c *Client) WritePump() {
 	log.Printf("[WS] writePump STARTED for %s", c.conn.RemoteAddr())
+
+	testMsg := []byte(`{"type":"hello"}`)
+	if err := c.writeFrame(websocket.TextMessage, testMsg); err != nil {
+		log.Printf("[WS] HELLO FRAME FAILED for %s: %v", c.conn.RemoteAddr(), err)
+	} else {
+		log.Printf("[WS] HELLO FRAME SENT for %s", c.conn.RemoteAddr())
+	}
+
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
