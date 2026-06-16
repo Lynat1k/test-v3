@@ -872,8 +872,8 @@ export default function App() {
       return;
     }
 
-    const apiBase = (import.meta as any).env?.VITE_API_BASE || "";
-    const wsUrl = apiBase.replace(/^http/, "ws") + "/ws";
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
 
     const client = getOrCreateWsClient(wsUrl, {
       url: wsUrl,
@@ -907,8 +907,8 @@ export default function App() {
   useEffect(() => {
     if (!isTickingAll) return;
 
-    const apiBase = (import.meta as any).env?.VITE_API_BASE || "";
-    const wsUrl = apiBase.replace(/^http/, "ws") + "/ws";
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
 
     const client = getOrCreateWsClient(wsUrl, {
       url: wsUrl,

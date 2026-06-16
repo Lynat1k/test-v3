@@ -155,12 +155,14 @@ export class WsClient {
       this.ws = null;
     }
 
-    const ws = new WebSocket(this.config.url);
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+    const ws = new WebSocket(wsUrl);
     this.ws = ws;
 
     ws.onopen = () => {
       if (this.destroyed) { ws.close(); return; }
-      console.log("[WS] Connected to", this.config.url);
+      console.log("[WS] Connected to", wsUrl);
       this.reconnectDelay = 1000;
       this.config.onConnect?.();
       for (const sub of this.activeSubs.values()) {

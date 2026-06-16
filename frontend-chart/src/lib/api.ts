@@ -86,8 +86,6 @@ function mapBackendCandle(bc: BackendCandle): ClusterCandle {
 export async function getClusterCandles(
   params: GetClusterCandlesParams
 ): Promise<CandlesResponse> {
-  const apiBase = (import.meta as any).env?.VITE_API_BASE || "";
-
   const queryParams = new URLSearchParams({
     symbol: params.symbol,
     market: params.market,
@@ -102,7 +100,7 @@ export async function getClusterCandles(
     queryParams.set("limit", String(params.limit));
   }
 
-  const url = `${apiBase}/api/candles?${queryParams.toString()}`;
+  const url = `/api/candles?${queryParams.toString()}`;
 
   const response = await fetch(url);
   if (!response.ok) {
