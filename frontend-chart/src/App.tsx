@@ -675,12 +675,14 @@ export default function App() {
   const intervalRef0 = useRef<string>(interval0);
   const orderBookTickStepRef0 = useRef<number>(0.01);
   const wsClientRef0 = useRef<WsClient | null>(null);
+  const prevSubRef0 = useRef<{ symbol: string; market: string; tf: string; compression: number } | null>(null);
 
   const incomingCandleBufferRef1 = useRef<any>(null);
   const activePairRef1 = useRef<CryptoPair>(activePair1);
   const intervalRef1 = useRef<string>(interval1);
   const orderBookTickStepRef1 = useRef<number>(0.01);
   const wsClientRef1 = useRef<WsClient | null>(null);
+  const prevSubRef1 = useRef<{ symbol: string; market: string; tf: string; compression: number } | null>(null);
   
   useEffect(() => {
     activePairRef0.current = activePair0;
@@ -898,10 +900,25 @@ export default function App() {
     const baseCompression = isBtc ? (isFutures ? 25 : 500) : 25;
     const compression = baseCompression * compressionMultiplier0;
     const market = isFutures ? "futures" : "spot";
+
+    if (prevSubRef0.current) {
+      const prev = prevSubRef0.current;
+      client.unsubscribe(prev.symbol, prev.market, prev.tf, prev.compression);
+    }
+    prevSubRef0.current = { symbol: activePair0.symbol, market, tf: interval0, compression };
+
     client.subscribe(activePair0.symbol, market, interval0, compression, {
       onUpdate: (_msg, candle) => { incomingCandleBufferRef0.current = candle; },
       onClose: (_msg, candle) => { incomingCandleBufferRef0.current = candle; },
     });
+
+    return () => {
+      if (prevSubRef0.current) {
+        const prev = prevSubRef0.current;
+        client.unsubscribe(prev.symbol, prev.market, prev.tf, prev.compression);
+        prevSubRef0.current = null;
+      }
+    };
   }, [activePair0.symbol, marketType0, interval0, compressionMultiplier0]);
 
   // Chart 1 WebSocket connection — singleton
@@ -934,10 +951,25 @@ export default function App() {
     const baseCompression = isBtc ? (isFutures ? 25 : 500) : 25;
     const compression = baseCompression * compressionMultiplier1;
     const market = isFutures ? "futures" : "spot";
+
+    if (prevSubRef1.current) {
+      const prev = prevSubRef1.current;
+      client.unsubscribe(prev.symbol, prev.market, prev.tf, prev.compression);
+    }
+    prevSubRef1.current = { symbol: activePair1.symbol, market, tf: interval1, compression };
+
     client.subscribe(activePair1.symbol, market, interval1, compression, {
       onUpdate: (_msg, candle) => { incomingCandleBufferRef1.current = candle; },
       onClose: (_msg, candle) => { incomingCandleBufferRef1.current = candle; },
     });
+
+    return () => {
+      if (prevSubRef1.current) {
+        const prev = prevSubRef1.current;
+        client.unsubscribe(prev.symbol, prev.market, prev.tf, prev.compression);
+        prevSubRef1.current = null;
+      }
+    };
   }, [activePair1.symbol, marketType1, interval1, compressionMultiplier1]);
 
   // WS Candle Buffer Flush (200ms interval)
@@ -956,8 +988,9 @@ export default function App() {
             const next = [...prev, candle];
             return next.slice(-getMaxCandlesForInterval(intervalRef0.current));
           } else if (candle.timestamp === last.timestamp) {
-            prev[lastIdx] = candle;
-            return prev;
+            const next = prev.slice();
+            next[lastIdx] = candle;
+            return next;
           }
           return prev;
         });
@@ -980,8 +1013,9 @@ export default function App() {
             const next = [...prev, candle];
             return next.slice(-getMaxCandlesForInterval(intervalRef1.current));
           } else if (candle.timestamp === last.timestamp) {
-            prev[lastIdx] = candle;
-            return prev;
+            const next = prev.slice();
+            next[lastIdx] = candle;
+            return next;
           }
           return prev;
         });
