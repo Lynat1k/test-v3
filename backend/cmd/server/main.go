@@ -100,8 +100,10 @@ func runServer() {
 	chAddr := envOr("CLICKHOUSE_URL", "clickhouse://localhost:9090")
 	migrationsPath := envOr("MIGRATIONS_PATH", "migrations/001_init.sql")
 
-	// Install ring-buffer log interceptor
+	// Create ring buffer FIRST, before any log calls
 	adminLogBuf := admin.NewRingBuffer(500)
+
+	// Install log interceptor: writes to both stderr AND ring buffer
 	log.SetOutput(io.MultiWriter(os.Stderr, &logWriter{buf: adminLogBuf}))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -188,7 +190,7 @@ func runServer() {
 	hub := ws.NewHub(rdb, apiServer, ws.HubConfig{})
 	go hub.Run(ctx)
 
-	adminHandler := admin.NewAdminHandler(ch, rdb, configs, hub)
+	adminHandler := admin.NewAdminHandlerWithBuf(ch, rdb, configs, hub, adminLogBuf)
 	adminHandler.RegisterRoutes(mux, apiServer.CorsMiddleware, apiServer.RequireAdmin)
 
 	for _, td := range tickers {

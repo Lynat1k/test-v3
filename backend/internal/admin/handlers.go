@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 
 	"procluster-backend/internal/aggregate"
@@ -30,6 +31,8 @@ type AdminHandler struct {
 	started  time.Time
 	logBuf   *RingBuffer
 	mu       sync.RWMutex
+
+	cpuPercent atomic.Value // float64 cached
 }
 
 type HubClient interface {
@@ -37,9 +40,13 @@ type HubClient interface {
 }
 
 type historyJob struct {
-	ID     string
-	Status string // "running", "done", "error"
-	Error  string
+	ID      string
+	Status  string // "running", "done", "error"
+	Error   string
+	Detail  string
+	Label   string
+	Current int
+	Total   int
 }
 
 type progressEvent struct {
@@ -55,13 +62,41 @@ var (
 )
 
 func NewAdminHandler(ch *store.ClickHouse, rdb *cache.RedisCache, configs []aggregate.TickerConfig, hub HubClient) *AdminHandler {
-	return &AdminHandler{
+	h := &AdminHandler{
 		ch:      ch,
 		rdb:     rdb,
 		configs: configs,
 		hub:     hub,
 		started: time.Now(),
 		logBuf:  NewRingBuffer(500),
+	}
+	h.cpuPercent.Store(0.0)
+	go h.cpuPoller()
+	return h
+}
+
+func NewAdminHandlerWithBuf(ch *store.ClickHouse, rdb *cache.RedisCache, configs []aggregate.TickerConfig, hub HubClient, buf *RingBuffer) *AdminHandler {
+	h := &AdminHandler{
+		ch:      ch,
+		rdb:     rdb,
+		configs: configs,
+		hub:     hub,
+		started: time.Now(),
+		logBuf:  buf,
+	}
+	h.cpuPercent.Store(0.0)
+	go h.cpuPoller()
+	return h
+}
+
+func (h *AdminHandler) cpuPoller() {
+	cpu.Percent(0, false) // prime the delta
+	for {
+		time.Sleep(2 * time.Second)
+		pcts, err := cpu.Percent(0, false)
+		if err == nil && len(pcts) > 0 {
+			h.cpuPercent.Store(pcts[0])
+		}
 	}
 }
 
@@ -148,6 +183,14 @@ func (h *AdminHandler) handleHistoryLoad(w http.ResponseWriter, r *http.Request)
 
 	go func() {
 		p := history.NewPipeline(h.ch, func(label string, current, total int, detail string) {
+			jobsMu.Lock()
+			if job, ok := jobs[jobID]; ok {
+				job.Label = label
+				job.Current = current
+				job.Total = total
+				job.Detail = detail
+			}
+			jobsMu.Unlock()
 			h.logBuf.Write(fmt.Sprintf("[History] %s %s %d/%d %s", symbol, label, current, total, detail))
 		})
 		err := p.Run(context.Background(), cfg)
@@ -183,15 +226,21 @@ func (h *AdminHandler) handleHistoryProgress(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	ctx := r.Context()
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+	heartbeat := time.NewTicker(8 * time.Second)
+	defer heartbeat.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-heartbeat.C:
+			fmt.Fprintf(w, ": heartbeat\n\n")
+			flusher.Flush()
 		case <-ticker.C:
 			jobsMu.Lock()
 			job, exists := jobs[jobID]
@@ -215,7 +264,14 @@ func (h *AdminHandler) handleHistoryProgress(w http.ResponseWriter, r *http.Requ
 				return
 			}
 
-			fmt.Fprintf(w, "event: progress\ndata: {\"status\":\"running\"}\n\n")
+			evt := progressEvent{
+				Label:   job.Label,
+				Current: job.Current,
+				Total:   job.Total,
+				Detail:  job.Detail,
+			}
+			data, _ := json.Marshal(evt)
+			fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data)
 			flusher.Flush()
 		}
 	}
@@ -227,50 +283,75 @@ func (h *AdminHandler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
+	func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("[ADMIN] metrics panic recovered: %v", rec)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(500)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"ok":    false,
+					"error": fmt.Sprintf("metrics panic: %v", rec),
+				})
+			}
+		}()
 
-	cpuPct, _ := cpu.Percent(time.Second, false)
-	cpuVal := 0.0
-	if len(cpuPct) > 0 {
-		cpuVal = cpuPct[0]
-	}
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
 
-	vm, _ := mem.VirtualMemory()
-	sysRAM := 0.0
-	if vm != nil {
-		sysRAM = float64(vm.Used) / (1024 * 1024 * 1024)
-	}
+		cpuVal := h.cpuPercent.Load().(float64)
 
-	chOK := "ok"
-	if err := h.ch.Ping(); err != nil {
-		chOK = "fail"
-	}
+		vm, _ := mem.VirtualMemory()
+		sysRAMUsed := 0.0
+		sysRAMTotal := 0.0
+		if vm != nil {
+			sysRAMUsed = float64(vm.Used) / (1024 * 1024 * 1024)
+			sysRAMTotal = float64(vm.Total) / (1024 * 1024 * 1024)
+		}
 
-	redisOK := "ok"
-	if err := h.rdb.Ping(context.Background()); err != nil {
-		redisOK = "fail"
-	}
+		diskUsed := 0.0
+		diskTotal := 0.0
+		diskPct := 0.0
+		if du, err := disk.Usage("/"); err == nil {
+			diskUsed = float64(du.Used) / (1024 * 1024 * 1024)
+			diskTotal = float64(du.Total) / (1024 * 1024 * 1024)
+			diskPct = du.UsedPercent
+		}
 
-	wsClients := 0
-	if h.hub != nil {
-		wsClients = h.hub.ClientCount()
-	}
+		chOK := "ok"
+		if err := h.ch.Ping(); err != nil {
+			chOK = "fail"
+		}
 
-	resp := map[string]interface{}{
-		"uptime":        time.Since(h.started).Seconds(),
-		"goroutines":    runtime.NumGoroutine(),
-		"ram_alloc_mb":  float64(m.Alloc) / (1024 * 1024),
-		"ram_sys_mb":    float64(m.Sys) / (1024 * 1024),
-		"cpu_percent":   cpuVal,
-		"system_ram_gb": sysRAM,
-		"ws_clients":    wsClients,
-		"clickhouse":    chOK,
-		"redis":         redisOK,
-	}
+		redisOK := "ok"
+		if err := h.rdb.Ping(context.Background()); err != nil {
+			redisOK = "fail"
+		}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+		wsClients := 0
+		if h.hub != nil {
+			wsClients = h.hub.ClientCount()
+		}
+
+		resp := map[string]interface{}{
+			"uptime":         time.Since(h.started).Seconds(),
+			"goroutines":     runtime.NumGoroutine(),
+			"ram_alloc_mb":   float64(m.Alloc) / (1024 * 1024),
+			"ram_sys_mb":     float64(m.Sys) / (1024 * 1024),
+			"cpu_percent":    cpuVal,
+			"system_ram_gb":  sysRAMUsed,
+			"system_ram_total_gb": sysRAMTotal,
+			"disk_used_gb":   diskUsed,
+			"disk_total_gb":  diskTotal,
+			"disk_percent":   diskPct,
+			"ws_clients":     wsClients,
+			"clickhouse":     chOK,
+			"redis":          redisOK,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}()
 }
 
 func (h *AdminHandler) handleTickers(w http.ResponseWriter, r *http.Request) {
@@ -299,15 +380,15 @@ func (h *AdminHandler) handleGetTickers(w http.ResponseWriter, _ *http.Request) 
 
 func (h *AdminHandler) handlePostTicker(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Symbol            string   `json:"symbol"`
-		Market            string   `json:"market"`
-		TickSize          float64  `json:"tickSize"`
-		BaseCompression   uint32   `json:"baseCompression"`
-		CompressionLevels uint8    `json:"compressionLevels"`
-		DefaultCompression uint32  `json:"defaultCompression"`
-		TTLDays           uint32   `json:"ttlDays"`
-		DOMSnapshotSec    uint32   `json:"domSnapshotSec"`
-		Timeframes        []string `json:"timeframes"`
+		Symbol             string   `json:"symbol"`
+		Market             string   `json:"market"`
+		TickSize           float64  `json:"tickSize"`
+		BaseCompression    uint32   `json:"baseCompression"`
+		CompressionLevels  uint8    `json:"compressionLevels"`
+		DefaultCompression uint32   `json:"defaultCompression"`
+		TTLDays            uint32   `json:"ttlDays"`
+		DOMSnapshotSec     uint32   `json:"domSnapshotSec"`
+		Timeframes         []string `json:"timeframes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, 400, "BAD_REQUEST", err.Error())
@@ -481,8 +562,4 @@ func jsonError(w http.ResponseWriter, status int, code, msg string) {
 		},
 	}
 	json.NewEncoder(w).Encode(resp)
-}
-
-func init() {
-	log.SetOutput(os.Stderr)
 }
