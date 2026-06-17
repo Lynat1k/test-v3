@@ -10,6 +10,8 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/shopspring/decimal"
+
+	"procluster-backend/internal/aggregate"
 )
 
 // ClusterRow is a single cluster cell row for batch insert.
@@ -105,6 +107,80 @@ func (ch *ClickHouse) deduplicateTickerConfig(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Ping checks ClickHouse connectivity.
+func (ch *ClickHouse) Ping() error {
+	return ch.conn.Ping(context.Background())
+}
+
+// TickerConfigRow is used for upsert operations.
+type TickerConfigRow struct {
+	Symbol             string
+	Market             string
+	TickSize           float64
+	BaseCompression    uint32
+	CompressionLevels  uint8
+	DefaultCompression uint32
+	TTLDays            uint32
+	DOMSnapshotSec     uint32
+	Enabled            bool
+}
+
+// UpsertTickerConfig inserts or replaces a ticker config row.
+func (ch *ClickHouse) UpsertTickerConfig(ctx context.Context, row TickerConfigRow) error {
+	enabled := uint8(0)
+	if row.Enabled {
+		enabled = 1
+	}
+	query := `INSERT INTO ticker_config (symbol, market, tick_size, base_compression, compression_levels, default_compression, ttl_days, dom_snapshot_seconds, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	return ch.conn.Exec(ctx, query,
+		row.Symbol, row.Market, row.TickSize, row.BaseCompression,
+		row.CompressionLevels, row.DefaultCompression, row.TTLDays,
+		row.DOMSnapshotSec, enabled,
+	)
+}
+
+// DeleteTickerConfig removes a ticker config by symbol+market.
+func (ch *ClickHouse) DeleteTickerConfig(ctx context.Context, symbol, market string) error {
+	query := `ALTER TABLE ticker_config DELETE WHERE symbol = ? AND market = ?`
+	return ch.conn.Exec(ctx, query, symbol, market)
+}
+
+// QueryTickerConfigsAll reads all ticker configs (including disabled).
+func (ch *ClickHouse) QueryTickerConfigsAll(ctx context.Context) ([]aggregate.TickerConfig, error) {
+	query := `
+		SELECT symbol, market, toFloat64(tick_size), base_compression,
+		       compression_levels, default_compression, ttl_days,
+		       dom_snapshot_seconds, enabled
+		FROM ticker_config FINAL
+	`
+	rows, err := ch.conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query ticker configs: %w", err)
+	}
+	defer rows.Close()
+
+	var configs []aggregate.TickerConfig
+	for rows.Next() {
+		var tc aggregate.TickerConfig
+		var tickSize float64
+		var market string
+		var enabled uint8
+		if err := rows.Scan(
+			&tc.Symbol, &market, &tickSize, &tc.BaseCompression,
+			&tc.CompressionLevels, &tc.DefaultCompression, &tc.TTLDays,
+			&tc.DOMSnapshotSec, &enabled,
+		); err != nil {
+			return nil, fmt.Errorf("scan ticker config: %w", err)
+		}
+		tc.Market = market
+		tc.TickSize = tickSize
+		tc.Enabled = enabled == 1
+		configs = append(configs, tc)
+	}
+	return configs, nil
 }
 
 func toDecimal18(v float64) decimal.Decimal {

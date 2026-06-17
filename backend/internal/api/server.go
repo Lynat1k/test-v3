@@ -3,6 +3,7 @@ package api
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"procluster-backend/internal/aggregate"
 	"procluster-backend/internal/cache"
@@ -34,13 +35,13 @@ func (s *Server) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/tickers", s.corsMiddleware(s.handleTickers))
 }
 
-func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func (s *Server) CorsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" && IsOriginAllowed(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-Role")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
@@ -49,6 +50,27 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
+		next(w, r)
+	}
+}
+
+func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return s.CorsMiddleware(next)
+}
+
+// RequireAdmin checks X-User-Role == "admin". Bypasses with ADMIN_DEV_BYPASS=true.
+func (s *Server) RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if os.Getenv("ADMIN_DEV_BYPASS") == "true" {
+			log.Printf("[ADMIN] DEV BYPASS active for %s %s", r.Method, r.URL.Path)
+			next(w, r)
+			return
+		}
+		role := r.Header.Get("X-User-Role")
+		if role != "admin" {
+			jsonError(w, 403, "FORBIDDEN", "admin role required")
+			return
+		}
 		next(w, r)
 	}
 }

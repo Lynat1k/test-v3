@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"procluster-backend/internal/admin"
 	"procluster-backend/internal/aggregate"
 	"procluster-backend/internal/api"
 	"procluster-backend/internal/cache"
@@ -98,6 +100,10 @@ func runServer() {
 	chAddr := envOr("CLICKHOUSE_URL", "clickhouse://localhost:9090")
 	migrationsPath := envOr("MIGRATIONS_PATH", "migrations/001_init.sql")
 
+	// Install ring-buffer log interceptor
+	adminLogBuf := admin.NewRingBuffer(500)
+	log.SetOutput(io.MultiWriter(os.Stderr, &logWriter{buf: adminLogBuf}))
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -182,6 +188,9 @@ func runServer() {
 	hub := ws.NewHub(rdb, apiServer, ws.HubConfig{})
 	go hub.Run(ctx)
 
+	adminHandler := admin.NewAdminHandler(ch, rdb, configs, hub)
+	adminHandler.RegisterRoutes(mux, apiServer.CorsMiddleware, apiServer.RequireAdmin)
+
 	for _, td := range tickers {
 		tfs := td.tfs
 		tdCopy := td
@@ -240,4 +249,13 @@ func main() {
 	}
 
 	runServer()
+}
+
+type logWriter struct {
+	buf *admin.RingBuffer
+}
+
+func (lw *logWriter) Write(p []byte) (int, error) {
+	lw.buf.Write(strings.TrimRight(string(p), "\n"))
+	return len(p), nil
 }

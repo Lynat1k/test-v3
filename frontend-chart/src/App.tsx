@@ -1045,40 +1045,6 @@ export default function App() {
 
 
   // --- Admin Panel API Callbacks ---
-  const handleUpdatePairPrice = (symbol: string, newPrice: number) => {
-    const activePairRefLocal = activeChartIndex === 0 ? activePairRef0 : activePairRef1;
-
-    setPairs((prev) =>
-      prev.map((p) => {
-        if (p.symbol === symbol) {
-          const updated = { ...p, price: newPrice };
-          if (activePairRefLocal.current.symbol === symbol) {
-            setActivePair(updated);
-          }
-          return updated;
-        }
-        return p;
-      })
-    );
-  };
-
-  const handleInjectWhaleTrade = (_side: "buy" | "sell", _amount: number) => {};
-
-  const handleClearHistory = () => {
-    if (activeChartIndex === 0) {
-      setCandles0([]);
-      setTrades0([]);
-    } else {
-      setCandles1([]);
-      setTrades1([]);
-    }
-  };
-
-  const handleAddPair = (newPair: CryptoPair) => {
-    setPairs(prev => [...prev, newPair]);
-  };
-
-  const handleApplyAnomaly = (_type: "pump" | "dump" | "spike" | "whale-wall") => {};
 
   return (
     <div className={`h-screen max-h-screen flex flex-col font-sans select-none antialiased relative overflow-hidden transition-all duration-300 ${
@@ -1120,13 +1086,8 @@ export default function App() {
           isTickingAll={isTickingAll}
           onToggleTicking={() => setIsTickingAll(!isTickingAll)}
           onSetConnectionStatus={setConnectionStatus}
-          onUpdatePairPrice={handleUpdatePairPrice}
-          onInjectWhaleTrade={handleInjectWhaleTrade}
-          onClearHistory={handleClearHistory}
-          onApplyAnomaly={handleApplyAnomaly}
           marketType={marketType}
           onSetMarketType={setMarketType}
-          onAddPair={handleAddPair}
         />
       ) : currentView === "profile" ? (
         <div className={`flex-1 overflow-y-auto w-full relative z-40 flex flex-col ${theme === 'light' ? 'scrollbar-thin-light bg-slate-100' : 'scrollbar-thin-dark bg-[#060813]'}`}>
