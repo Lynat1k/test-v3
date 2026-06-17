@@ -209,6 +209,7 @@ export class WsClient {
           ? makeSubKey({ symbol: msg.symbol, market: msg.market, tf: msg.tf, compression: msg.compression })
           : null;
         const cb = key ? this.subCallbacks.get(key) : null;
+
         if (msg.type === "update") {
           cb?.onUpdate?.(msg, candle);
         } else {
