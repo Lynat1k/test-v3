@@ -96,7 +96,7 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - [ ] 8 Тарифы + ограничения истории/индикаторов [build]
 - [ ] 9 Cluster Search (docs/03) [compose]
 - [ ] 10 Профиль + сохранение настроек [build]
-- [x] 11 Админка: загрузка истории, метрики, тикеры, дефолты сжатия, логи [build] ✅ DONE
+- [x] 11 Админка: загрузка истории, метрики, тикеры, дефолты сжатия, логи [build] ✅ DONE (fixes: non-blocking CPU poller, SSE progress+heartbeat, ring-buffer log interceptor, disk metrics, SVG graphs)
 - [ ] 12 Структура снапшотов стакана (под heatmap, без рендера) [plan→build]
 - [ ] 13 Лендинг procluster.online [build]
 - [ ] 14 Аудит безопасности + хардненинг [plan]
