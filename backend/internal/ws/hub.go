@@ -449,7 +449,7 @@ func buildCandle(candleTimeUnix int64, cells []aggregate.ClusterCell, compressio
 		if candle.Open == 0 {
 			candle.Open = cell.Price
 		}
-		candle.Close = cell.Price + float64(compression)*tc.TickSize
+		candle.Close = cell.Price
 	}
 	candle.Volume = round1(candle.Volume)
 	candle.Delta = round1(candle.Delta)

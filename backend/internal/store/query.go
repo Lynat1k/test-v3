@@ -24,7 +24,9 @@ func (ch *ClickHouse) QueryCandles(ctx context.Context, market, symbol, tf strin
 			toInt64(candle_time) as ts,
 			toFloat64(price) as price,
 			toFloat64(bid) as bid,
-			toFloat64(ask) as ask
+			toFloat64(ask) as ask,
+			toFloat64(open_price) as open_price,
+			toFloat64(close_price) as close_price
 		FROM %s
 		WHERE symbol = ? AND timeframe = ?
 	`, table)
@@ -47,9 +49,12 @@ func (ch *ClickHouse) QueryCandles(ctx context.Context, market, symbol, tf strin
 	defer rows.Close()
 
 	type candleAcc struct {
-		candle  aggregate.ClusterCandle
-		maxVol  float64
-		pocIdx  int
+		candle      aggregate.ClusterCandle
+		maxVol      float64
+		pocIdx      int
+		openPrice   float64
+		closePrice  float64
+		hasOpen     bool
 	}
 
 	candleMap := make(map[int64]*candleAcc)
@@ -57,8 +62,8 @@ func (ch *ClickHouse) QueryCandles(ctx context.Context, market, symbol, tf strin
 
 	for rows.Next() {
 		var ts int64
-		var price, bid, ask float64
-		if err := rows.Scan(&ts, &price, &bid, &ask); err != nil {
+		var price, bid, ask, openPrice, closePrice float64
+		if err := rows.Scan(&ts, &price, &bid, &ask, &openPrice, &closePrice); err != nil {
 			return nil, fmt.Errorf("scan candle row: %w", err)
 		}
 
@@ -78,6 +83,13 @@ func (ch *ClickHouse) QueryCandles(ctx context.Context, market, symbol, tf strin
 		if vol > acc.maxVol {
 			acc.maxVol = vol
 		}
+
+		// Track open/close from first row seen per candle (all rows have same open/close)
+		if !acc.hasOpen {
+			acc.openPrice = openPrice
+			acc.closePrice = closePrice
+			acc.hasOpen = true
+		}
 	}
 
 	candles := make([]aggregate.ClusterCandle, 0, len(candleOrder))
@@ -92,14 +104,29 @@ func (ch *ClickHouse) QueryCandles(ctx context.Context, market, symbol, tf strin
 		if len(cc.Cells) > 0 {
 			cc.Low = cc.Cells[0].Price
 			cc.High = cc.Cells[len(cc.Cells)-1].Price
-			cc.Open = cc.Low
-			cc.Close = cc.High
+
+			// Use real open/close from trade data if available
+			if acc.openPrice > 0 {
+				cc.Open = acc.openPrice
+			} else {
+				cc.Open = cc.Low
+			}
+			if acc.closePrice > 0 {
+				cc.Close = acc.closePrice
+			} else {
+				cc.Close = cc.High
+			}
 		}
 
 		cc.Volume = round1(cc.Volume)
 		cc.Delta = round1(cc.Delta)
 
 		candles = append(candles, *cc)
+	}
+
+	// Reverse to ascending order (oldest first)
+	for i, j := 0, len(candles)-1; i < j; i, j = i+1, j-1 {
+		candles[i], candles[j] = candles[j], candles[i]
 	}
 
 	return candles, nil

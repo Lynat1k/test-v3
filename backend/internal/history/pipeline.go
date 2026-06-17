@@ -174,6 +174,8 @@ func (p *Pipeline) aggregateAndInsert(ctx context.Context, cfg HistoryConfig, tr
 		if len(cells) == 0 {
 			continue
 		}
+		openPrice := agg.OpenPrice()
+		closePrice := agg.ClosePrice()
 		for _, c := range cells {
 			allRows = append(allRows, store.ClusterRow{
 				Symbol:     cfg.Symbol,
@@ -182,6 +184,8 @@ func (p *Pipeline) aggregateAndInsert(ctx context.Context, cfg HistoryConfig, tr
 				Price:      c.Price,
 				Bid:        c.Bid,
 				Ask:        c.Ask,
+				OpenPrice:  openPrice,
+				ClosePrice: closePrice,
 			})
 		}
 		totalCells += len(cells)

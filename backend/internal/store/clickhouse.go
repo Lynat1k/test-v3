@@ -22,6 +22,8 @@ type ClusterRow struct {
 	Price      float64
 	Bid        float64
 	Ask        float64
+	OpenPrice  float64
+	ClosePrice float64
 }
 
 // ClickHouse wraps a ClickHouse connection.
@@ -77,6 +79,11 @@ func (ch *ClickHouse) ApplyMigrations(path string) error {
 			continue
 		}
 		if err := ch.conn.Exec(ctx, stmt); err != nil {
+			// ALTER TABLE errors are non-fatal (column may already exist)
+			if strings.HasPrefix(strings.TrimSpace(strings.ToUpper(stmt)), "ALTER TABLE") {
+				log.Printf("warning: ALTER TABLE skipped: %v", err)
+				continue
+			}
 			return fmt.Errorf("migration exec: %w\nstmt: %s", err, stmt)
 		}
 	}
@@ -198,7 +205,7 @@ func (ch *ClickHouse) BatchInsert(market string, rows []ClusterRow) error {
 	}
 
 	ctx := context.Background()
-	batch, err := ch.conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s (symbol, timeframe, candle_time, price, bid, ask)", table))
+	batch, err := ch.conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s (symbol, timeframe, candle_time, price, bid, ask, open_price, close_price)", table))
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
 	}
@@ -211,6 +218,8 @@ func (ch *ClickHouse) BatchInsert(market string, rows []ClusterRow) error {
 			toDecimal18(r.Price),
 			toDecimal18(r.Bid),
 			toDecimal18(r.Ask),
+			toDecimal18(r.OpenPrice),
+			toDecimal18(r.ClosePrice),
 		); err != nil {
 			return fmt.Errorf("batch append: %w", err)
 		}

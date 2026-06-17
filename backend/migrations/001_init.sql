@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS clusters_futures
     price         Decimal(18, 1),
     bid           Decimal(18, 1),
     ask           Decimal(18, 1),
+    open_price    Decimal(18, 1) DEFAULT 0,
+    close_price   Decimal(18, 1) DEFAULT 0,
     volume        Decimal(18, 1) MATERIALIZED bid + ask,
     is_poc        UInt8 DEFAULT 0,
     updated_at    DateTime DEFAULT now(),
@@ -59,6 +61,8 @@ CREATE TABLE IF NOT EXISTS clusters_spot
     price         Decimal(18, 1),
     bid           Decimal(18, 1),
     ask           Decimal(18, 1),
+    open_price    Decimal(18, 1) DEFAULT 0,
+    close_price   Decimal(18, 1) DEFAULT 0,
     volume        Decimal(18, 1) MATERIALIZED bid + ask,
     is_poc        UInt8 DEFAULT 0,
     updated_at    DateTime DEFAULT now(),
@@ -105,3 +109,11 @@ ENGINE = ReplacingMergeTree(updated_at)
 PARTITION BY toYYYYMM(snap_time)
 ORDER BY (symbol, snap_time, price)
 TTL snap_time + INTERVAL 90 DAY DELETE;
+
+-- ============================================================
+-- 6. Add open_price/close_price to existing tables (idempotent)
+-- ============================================================
+ALTER TABLE clusters_futures ADD COLUMN IF NOT EXISTS open_price Decimal(18, 1) DEFAULT 0;
+ALTER TABLE clusters_futures ADD COLUMN IF NOT EXISTS close_price Decimal(18, 1) DEFAULT 0;
+ALTER TABLE clusters_spot ADD COLUMN IF NOT EXISTS open_price Decimal(18, 1) DEFAULT 0;
+ALTER TABLE clusters_spot ADD COLUMN IF NOT EXISTS close_price Decimal(18, 1) DEFAULT 0;

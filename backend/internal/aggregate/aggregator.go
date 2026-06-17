@@ -51,6 +51,11 @@ type Aggregator struct {
 	lastTradeID int64
 	// LogGaps controls whether gap detection logs messages (disable for history loading)
 	LogGaps bool
+
+	// open/close tracking: first and last trade prices within the candle
+	firstTradePrice float64
+	lastTradePrice  float64
+	tradeCount      int
 }
 
 // NewAggregator creates a new aggregator.
@@ -106,6 +111,13 @@ func (a *Aggregator) ProcessTrade(t Trade) (gapStart, gapEnd int64, hasGap bool)
 		cell.Ask += t.Qty
 	}
 
+	// Track first and last trade prices for open/close
+	if a.tradeCount == 0 {
+		a.firstTradePrice = t.Price
+	}
+	a.lastTradePrice = t.Price
+	a.tradeCount++
+
 	return gapStart, gapEnd, hasGap
 }
 
@@ -144,6 +156,16 @@ func (a *Aggregator) Cells() []ClusterCell {
 		return cells[i].Price < cells[j].Price
 	})
 	return cells
+}
+
+// OpenPrice returns the price of the first trade processed in this candle.
+func (a *Aggregator) OpenPrice() float64 {
+	return a.firstTradePrice
+}
+
+// ClosePrice returns the price of the last trade processed in this candle.
+func (a *Aggregator) ClosePrice() float64 {
+	return a.lastTradePrice
 }
 
 // MergeCells merges base-level cells into a higher compression level.
