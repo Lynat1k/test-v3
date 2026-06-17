@@ -882,6 +882,7 @@ export default function App() {
     });
 
     wsClientRef0.current = client;
+    client.connect();
 
     return () => {
       wsClientRef0.current = null;
@@ -917,6 +918,7 @@ export default function App() {
     });
 
     wsClientRef1.current = client;
+    client.connect();
 
     return () => {
       wsClientRef1.current = null;
@@ -948,17 +950,16 @@ export default function App() {
         incomingCandleBufferRef0.current = null;
         setCandles0(prev => {
           if (prev.length === 0) return [candle];
-          const next = [...prev];
-          const lastIdx = next.length - 1;
-          const last = next[lastIdx];
+          const lastIdx = prev.length - 1;
+          const last = prev[lastIdx];
           if (candle.timestamp > last.timestamp) {
-            next.push(candle);
+            const next = [...prev, candle];
             return next.slice(-getMaxCandlesForInterval(intervalRef0.current));
           } else if (candle.timestamp === last.timestamp) {
-            next[lastIdx] = candle;
-            return next;
+            prev[lastIdx] = candle;
+            return prev;
           }
-          return next;
+          return prev;
         });
         setActivePair0(prev => {
           if (prev.symbol === activePairRef0.current.symbol) {
@@ -973,17 +974,16 @@ export default function App() {
         incomingCandleBufferRef1.current = null;
         setCandles1(prev => {
           if (prev.length === 0) return [candle];
-          const next = [...prev];
-          const lastIdx = next.length - 1;
-          const last = next[lastIdx];
+          const lastIdx = prev.length - 1;
+          const last = prev[lastIdx];
           if (candle.timestamp > last.timestamp) {
-            next.push(candle);
+            const next = [...prev, candle];
             return next.slice(-getMaxCandlesForInterval(intervalRef1.current));
           } else if (candle.timestamp === last.timestamp) {
-            next[lastIdx] = candle;
-            return next;
+            prev[lastIdx] = candle;
+            return prev;
           }
-          return next;
+          return prev;
         });
         setActivePair1(prev => {
           if (prev.symbol === activePairRef1.current.symbol) {

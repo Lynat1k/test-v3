@@ -108,7 +108,6 @@ export function getOrCreateWsClient(url: string, config: WsClientConfig): WsClie
   if (!client) {
     client = new WsClient(config);
     singletons.set(url, client);
-    client.connect();
   }
   client.updateConfig(config);
   return client;
@@ -165,9 +164,11 @@ export class WsClient {
       console.log("[WS] Connected to", wsUrl);
       this.reconnectDelay = 1000;
       this.config.onConnect?.();
+      const count = this.activeSubs.size;
       for (const sub of this.activeSubs.values()) {
         this.sendSubscribe(sub);
       }
+      console.log("[WS] Resubscribed", count, "active subs");
     };
 
     ws.onmessage = (event) => {
