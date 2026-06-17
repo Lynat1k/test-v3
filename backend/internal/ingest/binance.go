@@ -187,6 +187,102 @@ func FetchHistoricalTrades(ctx context.Context, symbol, market string, fromID in
 	return trades, nil
 }
 
+// FetchAggTrades fetches aggregated trades from Binance REST API.
+// NOTE: futures aggTrades only returns the last 24 hours — sufficient for realtime gap-fill.
+// symbol: e.g. "BTCUSDT"
+// market: "futures" or "spot"
+// fromID: start aggTradeId (0 = latest)
+// limit: max 1000
+func FetchAggTrades(ctx context.Context, symbol, market string, fromID int64, limit int) ([]aggregate.Trade, error) {
+	var baseURL string
+	if market == "futures" {
+		baseURL = "https://fapi.binance.com"
+	} else {
+		baseURL = "https://api.binance.com"
+	}
+
+	endpoint := fmt.Sprintf("%s/fapi/v1/aggTrades", baseURL)
+	if market == "spot" {
+		endpoint = fmt.Sprintf("%s/api/v3/aggTrades", baseURL)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Set("symbol", symbol)
+	q.Set("limit", strconv.Itoa(limit))
+	if fromID > 0 {
+		q.Set("fromId", strconv.FormatInt(fromID, 10))
+	}
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := proxy.HTTPClient().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		var errResp struct {
+			Code int    `json:"code"`
+			Msg  string `json:"msg"`
+		}
+		json.Unmarshal(body, &errResp)
+		if resp.StatusCode == 429 || resp.StatusCode == 418 || errResp.Code == -1003 {
+			log.Printf("WARN: binance aggTrades %s %s rate limited: HTTP %d code=%d msg=%s", market, symbol, resp.StatusCode, errResp.Code, errResp.Msg)
+			return nil, ErrRateLimited
+		}
+		return nil, fmt.Errorf("binance aggTrades %s %s: HTTP %d code=%d msg=%s", market, symbol, resp.StatusCode, errResp.Code, errResp.Msg)
+	}
+
+	// Check if response is an error object (not an array)
+	if len(body) > 0 && body[0] != '[' {
+		var errResp struct {
+			Code int    `json:"code"`
+			Msg  string `json:"msg"`
+		}
+		if err := json.Unmarshal(body, &errResp); err == nil && errResp.Code != 0 {
+			if errResp.Code == -1003 {
+				log.Printf("WARN: binance aggTrades %s %s rate limited: code=%d msg=%s", market, symbol, errResp.Code, errResp.Msg)
+				return nil, ErrRateLimited
+			}
+			return nil, fmt.Errorf("binance aggTrades error: code=%d msg=%s", errResp.Code, errResp.Msg)
+		}
+		return nil, fmt.Errorf("binance aggTrades unexpected response: %s", string(body))
+	}
+
+	var raw []struct {
+		A int64  `json:"a"` // aggTradeId
+		P string `json:"p"` // price
+		Q string `json:"q"` // quantity
+		F int64  `json:"f"` // first tradeId
+		L int64  `json:"l"` // last tradeId
+		T int64  `json:"T"` // timestamp
+		M bool   `json:"m"` // isBuyerMaker
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("unmarshal aggTrades: %w", err)
+	}
+
+	trades := make([]aggregate.Trade, 0, len(raw))
+	for _, r := range raw {
+		price, _ := strconv.ParseFloat(r.P, 64)
+		qty, _ := strconv.ParseFloat(r.Q, 64)
+		trades = append(trades, aggregate.Trade{
+			TradeID:      r.L,
+			Price:        price,
+			Qty:          qty,
+			TradeTimeMs:  r.T,
+			IsBuyerMaker: r.M,
+		})
+	}
+	return trades, nil
+}
+
 // GapFiller detects tradeId gaps and fetches missing trades via REST.
 type GapFiller struct {
 	symbol string
@@ -199,19 +295,30 @@ func NewGapFiller(symbol, market string) *GapFiller {
 }
 
 // FillGap fetches trades in the range [start, end] from Binance REST.
+// For futures uses public aggTrades (no API key needed); for spot uses historicalTrades.
 func (g *GapFiller) FillGap(ctx context.Context, start, end int64) ([]aggregate.Trade, error) {
 	log.Printf("filling gap: tradeId %d–%d", start, end)
 	var all []aggregate.Trade
 	current := start
 	for current <= end {
-		batch, err := FetchHistoricalTrades(ctx, g.symbol, g.market, current, 1000)
+		var batch []aggregate.Trade
+		var err error
+		if g.market == "futures" {
+			batch, err = FetchAggTrades(ctx, g.symbol, g.market, current, 1000)
+		} else {
+			batch, err = FetchHistoricalTrades(ctx, g.symbol, g.market, current, 1000)
+		}
 		if err != nil {
 			if errors.Is(err, ErrRateLimited) {
 				log.Printf("WARN: gap-fill rate limited, retrying in 2s (current=%d)", current)
 				time.Sleep(2 * time.Second)
 				// retry up to 3 times
 				for retry := 0; retry < 3; retry++ {
-					batch, err = FetchHistoricalTrades(ctx, g.symbol, g.market, current, 1000)
+					if g.market == "futures" {
+						batch, err = FetchAggTrades(ctx, g.symbol, g.market, current, 1000)
+					} else {
+						batch, err = FetchHistoricalTrades(ctx, g.symbol, g.market, current, 1000)
+					}
 					if err == nil || !errors.Is(err, ErrRateLimited) {
 						break
 					}
