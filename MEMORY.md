@@ -97,6 +97,7 @@ JSON на старте. Live DOM на старте (без history). Старт:
 - [ ] 9 Cluster Search (docs/03) [compose]
 - [ ] 10 Профиль + сохранение настроек [build]
 - [x] 11 Админка: загрузка истории, метрики, тикеры, дефолты сжатия, логи [build] ✅ DONE (fixes: non-blocking CPU poller, SSE progress+heartbeat, ring-buffer log interceptor, disk metrics, SVG graphs)
+  - ⚠️ Known issue: futures gap-fill через публичный aggTrades возвращает 0 trades: WS-поток читает @trade (обычные tradeId), а aggTrades адресуется по aggTradeId — нумерация не совпадает. spot gap-fill работает. futures gap-fill вызывается только при разрыве WS, который сейчас происходит из-за нестабильного локального прокси. ПРОВЕРИТЬ на VPS (Гонконг, прямое соединение без прокси) — разрывов почти не будет. Если на VPS разрывы останутся — решение: дозагружать futures aggTrades по startTime/endTime (timestamp границ gap) с фильтрацией по полям f/l, либо перевести futures WS-поток на @aggTrade.
 - [ ] 12 Структура снапшотов стакана (под heatmap, без рендера) [plan→build]
 - [ ] 13 Лендинг procluster.online [build]
 - [ ] 14 Аудит безопасности + хардненинг [plan]
