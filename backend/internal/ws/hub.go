@@ -232,13 +232,7 @@ func (h *Hub) broadcastTick(ctx context.Context) {
 	for key := range h.subs {
 		keys[key] = true
 	}
-	numSubs := len(h.subs)
-	numKeys := len(keys)
 	h.mu.RUnlock()
-
-	if numKeys > 0 {
-		log.Printf("[WS] broadcastTick: %d unique sub keys, %d total subs", numKeys, numSubs)
-	}
 
 	for key := range keys {
 		h.broadcastSub(ctx, key)
@@ -334,11 +328,9 @@ func (h *Hub) broadcastSub(ctx context.Context, key string) {
 	}
 	h.mu.RUnlock()
 
-	log.Printf("[WS] broadcast: key=%s cells=%d clients=%d compression=%d", key, len(cells), len(clients), compression)
 	for _, c := range clients {
 		select {
 		case c.send <- data:
-			log.Printf("[WS] broadcast -> client send %s (key=%s, %d bytes)", c.RemoteAddr(), key, len(data))
 		default:
 			// Buffer full — drop and disconnect
 			log.Printf("[WS] backpressure disconnect: %s (buf full for %s)", c.RemoteAddr(), key)
